@@ -122,7 +122,7 @@ function move(s){
   // 加速燃烧长度和经验
   if(s.boost){
     s.targetLen=Math.max(6,s.targetLen-0.25);
-    s.score=Math.max(0,s.score-0.15);
+    s.score=Math.max(0,s.score-0.06);
   }
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
