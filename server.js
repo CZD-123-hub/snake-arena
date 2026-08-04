@@ -33,7 +33,8 @@ function rnd(n){return Math.random()*n}
 function spawnFood(n){
   for(let i=0;i<n;i++){
     const id='f'+(nextId++);
-    foods.set(id,{id,x:40+rnd(WORLD-80),y:40+rnd(WORLD-80)});
+    const big=rnd(1)<0.15;                 // 15% 大经验球
+    foods.set(id,{id,x:40+rnd(WORLD-80),y:40+rnd(WORLD-80),big});
   }
 }
 spawnFood(FOOD_TARGET);
@@ -128,10 +129,13 @@ function eatFood(s){
   const h=headOf(s);
   for(const [id,f] of foods){
     const dx=h.x-f.x,dy=h.y-f.y;
-    if(dx*dx+dy*dy<13*13){
+    const eatR=f.big?18:13;
+    if(dx*dx+dy*dy<eatR*eatR){
       foods.delete(id);
-      s.targetLen+=MAX_GROW;
-      s.score+=1;
+      if(f.big){s.targetLen+=2.5;s.score+=5}
+      else{s.targetLen+=MAX_GROW;s.score+=1}
+      s.ateFoods=s.ateFoods||[];
+      s.ateFoods.push({x:f.x,y:f.y,big:f.big});
     }
   }
 }
@@ -144,14 +148,14 @@ function kill(s,why){
     const p=s.points[i];
     if(rnd(1)<0.6){
       const id='f'+(nextId++);
-      foods.set(id,{id,x:p.x,y:p.y});
+      foods.set(id,{id,x:p.x,y:p.y,big:rnd(1)<0.1});
       newFoods.push(id);
     }
   }
   deadQueue.push({id:s.id,at:Date.now(),ai:s.ai});
-  broadcast({type:'death',id:s.id,foods:newFoods});
+  broadcast({type:'death',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods,why:why||''});
   if(s.ws){
-    try{s.ws.send(JSON.stringify({type:'gameover',len:Math.round(s.targetLen),rank:currentRank(s.id)}));}catch(e){}
+    try{s.ws.send(JSON.stringify({type:'gameover',len:Math.round(s.targetLen),score:s.score,rank:currentRank(s.id)}));}catch(e){}
   }
 }
 
@@ -180,7 +184,17 @@ function tick(){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;
         if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){
-          kill(s,'hit:'+t.name+'@'+i);
+          // 大鱼吃小鱼：经验多的蛇头撞到经验少的蛇身 → 吃掉对方
+          if(s.score>t.score){
+            t.eatenBy=s.name;
+            const gained=Math.max(1,Math.floor(t.score*0.5));
+            s.score+=gained;
+            s.targetLen+=gained*0.4;
+            kill(t,'eaten:'+s.name);
+            broadcast({type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
+          }else{
+            kill(s,'hit:'+t.name+'@'+i);
+          }
           break;
         }
       }
@@ -232,7 +246,12 @@ function broadcastState(){
   global.__prevFoods=new Set(cur);
   const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.targetLen-a.targetLen).slice(0,10);
   const rank=sorted.map((s,i)=>({n:i+1,name:s.name,len:Math.round(s.targetLen)}));
-  broadcast({type:'state',snakes:sn,fadd,fdel,rank});
+  // 吃食物事件（动画用）
+  const eats=[];
+  for(const s of snakes.values()){
+    if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
+  }
+  broadcast({type:'state',snakes:sn,fadd,fdel,rank,eats});
 }
 
 function sendInit(ws,s){
@@ -241,7 +260,7 @@ function sendInit(ws,s){
     points:x.points.map(p=>[p.x|0,p.y|0])}));
   const allFoods=[...foods.values()];
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
-    snakes:allSnakes,foods:allFoods.map(f=>({id:f.id,x:f.x|0,y:f.y|0}))}));
+    snakes:allSnakes,foods:allFoods.map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big}))}));
 }
 
 wss.on('connection',ws=>{

@@ -147,7 +147,7 @@
 
 <div class="panel" id="death">
   <h2>你出局了</h2>
-  <div class="sub">本局长度 <b id="dLen">0</b> · 排名 <b id="dRank">?</b></div>
+  <div class="sub">本局长度 <b id="dLen">0</b> · 经验 <b id="dScore">0</b> · 排名 <b id="dRank">?</b></div>
   <button class="btn" id="respawnBtn">再来一局</button>
   <button class="btn ghost" id="menuBtn">返回菜单</button>
 </div>
@@ -264,13 +264,24 @@ function handle(msg){
         state.myRank=me>=0?me+1:'?';
         renderLeaderboard();
       }
+      // 吃食物光效
+      if(msg.eats)for(const e of msg.eats){
+        for(const f of e.f)if(f.x!=null)explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
+      }
       break;
     case 'death':
       if(msg.id===state.selfId){showDeath();return}
       state.snakes.delete(msg.id);
+      // 死亡粒子动画
+      if(msg.x!=null)explode(msg.x,msg.y,msg.why&&msg.why.startsWith('eaten')?'#f59e0b':'#fb7185',26);
+      break;
+    case 'eat':
+      // 大鱼吃小鱼：吞噬光效
+      if(msg.x!=null)explode(msg.x,msg.y,'#22d3ee',18);
       break;
     case 'gameover':
       $('dLen').textContent=msg.len;
+      $('dScore').textContent=msg.score||'0';
       $('dRank').textContent=msg.rank>0?msg.rank:'?';
       break;
   }
@@ -426,19 +437,27 @@ function draw(){
   ctx.strokeStyle='rgba(225,29,72,.55)';ctx.lineWidth=6;
   ctx.strokeRect(20,20,WORLD-40,WORLD-40);
 
-  // 食物
-  ctx.fillStyle='#d97706';
+  // 食物（大经验球更亮更大）
   for(const f of state.foods.values()){
-    if(f.x<state.camX-W/2-20||f.x>state.camX+W/2+20||f.y<state.camY-H/2-20||f.y>state.camY+H/2+20)continue;
-    ctx.beginPath();
-    ctx.arc(f.x,f.y,3.2,0,Math.PI*2);
-    ctx.fill();
+    if(f.x<state.camX-W/2-30||f.x>state.camX+W/2+30||f.y<state.camY-H/2-30||f.y>state.camY+H/2+30)continue;
+    if(f.big){
+      const pulse=1+Math.sin(Date.now()/300+f.x)*0.15;
+      ctx.fillStyle='#f59e0b';
+      ctx.shadowColor='#fbbf24';ctx.shadowBlur=12;
+      ctx.beginPath();ctx.arc(f.x,f.y,7*pulse,0,Math.PI*2);ctx.fill();
+      ctx.shadowBlur=0;
+    }else{
+      ctx.fillStyle='#d97706';
+      ctx.beginPath();ctx.arc(f.x,f.y,3.2,0,Math.PI*2);ctx.fill();
+    }
   }
 
   // 蛇
   for(const s of state.snakes.values()){
     drawSnake(s,s.id===state.selfId);
   }
+  // 粒子动画（世界坐标系）
+  drawParticles();
   ctx.restore();
 
   // 触摸摇杆
@@ -449,8 +468,29 @@ function draw(){
     ctx.beginPath();ctx.arc(joy.cx+joy.dx,joy.cy+joy.dy,14,0,Math.PI*2);ctx.fill();
   }
 
+  // 粒子动画（世界坐标系，已在 restore 前绘制）
   drawMinimap();
   requestAnimationFrame(draw);
+}
+
+// ---------- 粒子系统 ----------
+const particles=[];
+function explode(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,sp=1+Math.random()*3.5;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,decay:0.03+Math.random()*0.03,color,r:2+Math.random()*3.5});
+  }
+}
+function drawParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vx*=0.96;p.vy*=0.96;p.life-=p.decay;
+    if(p.life<=0){particles.splice(i,1);continue}
+    ctx.globalAlpha=Math.max(0,p.life);
+    ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;
 }
 
 function drawSnake(s,isMe){
@@ -462,7 +502,8 @@ function drawSnake(s,isMe){
   let body=s.color;
   let pat='stripe';
   if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
-  const r=Math.min(9,2.2+Math.sqrt(s.len||12)*0.32);
+  // 体型：随经验增长但封顶（长度无限增长，宽度有限）
+  const r=Math.min(10,2.2+Math.sqrt(s.score||0)*0.35);
   ctx.lineCap='round';ctx.lineJoin='round';
   // 加速光效
   if(s.boost){
