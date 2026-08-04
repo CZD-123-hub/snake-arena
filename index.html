@@ -135,6 +135,7 @@
   <div class="row"><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
   <div class="row"><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
   <div class="row"><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
+  <button id="quitBtn" style="margin-top:6px;background:rgba(255,255,255,.35);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:5px 0;font-size:12px;cursor:pointer;font-family:inherit">退出</button>
 </div>
 
 <div class="panel" id="leaderboard" style="display:none">
@@ -174,8 +175,7 @@ const state={
   targetAngle:0,boosting:false,
   connected:false,inGame:false,
   mouse:{x:W/2,y:H/2},touch:null,
-  rank:[],
-  lastSend:0
+  rank:[],pendingJoin:false
 };
 
 const $=id=>document.getElementById(id);
@@ -223,9 +223,9 @@ function connect(){
   ws=new WebSocket(proto+location.host);
   ws.onopen=()=>{
     state.connected=true;
-    $('conn').textContent='已连接 · 输入名字开始';
+    $('conn').textContent='已连接 · 正在进入战场...';
     $('conn').classList.add('ok');
-    setStatus('ok');
+    if(state.pendingJoin){state.pendingJoin=false;sendJoin()}
   };
   ws.onmessage=e=>{
     let msg;try{msg=JSON.parse(e.data)}catch(err){return}
@@ -288,8 +288,16 @@ function enterGame(){
   $('minimap').style.display='block';
   $('conn').style.display='none';
   const me=state.snakes.get(state.selfId);
-  if(me){state.camX=me.x;state.camY=me.y}
+  if(me){state.camX=me.x;state.camY=me.y;}
+  // 初始化角度为蛇出生方向，避免未操作时乱冲撞墙
+  if(me&&me.points&&me.points.length>1){
+    state.selfAngle=Math.atan2(me.points[0][1]-me.points[1][1],me.points[0][0]-me.points[1][0]);
+  }
+  // 手机端默认不加速
+  state.boosting=false;
 }
+$('quitBtn').onclick=()=>{if(ws)ws.close()};
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.inGame&&ws)ws.close()});
 
 function showDeath(){
   state.inGame=false;
@@ -311,8 +319,8 @@ function showMenu(){
 
 $('startBtn').onclick=()=>{
   myNameVal=($('name').value||'').trim()||('玩家'+Math.floor(100+Math.random()*900));
-  if(!state.connected){connect();setTimeout(()=>ws&&ws.readyState===1&&sendJoin(),300)}
-  else sendJoin();
+  state.pendingJoin=true;
+  if(!state.connected||!ws||ws.readyState!==1){connect()}else{sendJoin()}
 };
 function sendJoin(){
   ws.send(JSON.stringify({type:'join',name:myNameVal,skin:mySkin}));
