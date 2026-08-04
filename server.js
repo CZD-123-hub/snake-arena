@@ -3,11 +3,12 @@ const {WebSocketServer}=require('ws');
 
 const PORT=process.env.PORT||8731;
 const WORLD=4000;                 // 世界边长
-const FOOD_TARGET=420;            // 食物目标数量
+const FOOD_TARGET=650;            // 食物目标数量
 const TICK_MS=50;                 // 20 tick/s 服务端权威
 const MAX_GROW=0.6;               // 吃食物增长
-const SPEED=2.7, SPEED_BOOST=4.6; // 每 tick 像素
+const SPEED=3.4, SPEED_BOOST=5.6; // 每 tick 像素
 const HEAD_R=11, BODY_R=8;
+const AI_TARGET=12;               // AI 蛇目标数量
 
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png'};
 const server=http.createServer((req,res)=>{
@@ -49,7 +50,7 @@ function spawnAI(n){
     snakes.set(s.id,s);
   }
 }
-  spawnAI(7);
+  spawnAI(AI_TARGET);
 function createSnake(ws,name,skin){
   const id='s'+(nextId++);
   const angle=rnd(Math.PI*2);
@@ -221,6 +222,13 @@ function tick(){
       if(d.ai)setTimeout(()=>spawnAI(1),2000+rnd(5000));
       deadQueue.splice(i,1);
     }
+  }
+  // 定期补充 AI：存活 AI 过少时补到目标数（每 2 秒检查一次）
+  if(now-(global.__aiCheck||0)>2000){
+    global.__aiCheck=now;
+    let aiAlive=0;
+    for(const s of snakes.values())if(s.alive&&s.ai)aiAlive++;
+    if(aiAlive<AI_TARGET)spawnAI(AI_TARGET-aiAlive);
   }
   broadcastState();
 }
