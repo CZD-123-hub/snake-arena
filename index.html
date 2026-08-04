@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>贪吃蛇大作战 · Snake Battle Royale</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --panel2:#eef2f8;
+    --border:#d8e0ec; --text:#1a2332; --muted:#5c6b80;
+    --green:#059669; --cyan:#0891b2; --amber:#d97706; --rose:#e11d48;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  #game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+
+  .panel{
+    position:fixed;background:var(--panel);border:1px solid var(--border);
+    border-radius:14px;padding:18px;z-index:10;
+  }
+
+  #menu{
+    top:50%;left:50%;transform:translate(-50%,-50%);
+    width:min(440px,94vw);text-align:center;
+  }
+  #menu h1{font-size:32px;letter-spacing:.1em;font-weight:800;margin-bottom:2px;
+    background:linear-gradient(135deg,#059669,#0891b2);-webkit-background-clip:text;background-clip:text;color:transparent}
+  #menu .tagline{color:var(--muted);font-size:13px;margin-bottom:20px;letter-spacing:.08em}
+  #menu .field-label{font-size:11px;color:var(--muted);letter-spacing:.14em;text-align:left;margin:14px 2px 8px}
+  #menu input{
+    width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    border-radius:12px;padding:12px 14px;font-size:15px;margin-bottom:4px;outline:none;
+    font-family:inherit;text-align:center;transition:border-color .15s;
+  }
+  #menu input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(5,150,105,.12)}
+  #skins{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px;
+  }
+  .skin{
+    aspect-ratio:1;border-radius:10px;cursor:pointer;border:2.5px solid var(--border);
+    transition:transform .15s,border-color .15s,box-shadow .15s;position:relative;
+  }
+  .skin:hover{transform:translateY(-2px) scale(1.04)}
+  .skin.sel{border-color:var(--green);box-shadow:0 0 0 3px rgba(5,150,105,.18)}
+  .skin::after{content:'';position:absolute;inset:26% 12%;border-radius:6px;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.45) 0 6px,transparent 6px 12px)}
+  .skin.dot::after{background:radial-gradient(circle,rgba(255,255,255,.55) 0 2.6px,transparent 3px);background-size:8px 8px}
+  .skin.zebra::after{background:repeating-linear-gradient(45deg,rgba(255,255,255,.4) 0 5px,transparent 5px 11px)}
+  .skin.plain::after{background:none}
+  #menu .btn{
+    width:100%;background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border:none;border-radius:12px;
+    padding:14px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;
+    transition:transform .15s,filter .15s,box-shadow .15s;box-shadow:0 6px 20px -6px rgba(5,150,105,.5);
+  }
+  #menu .btn:hover{filter:brightness(1.08)}
+  #menu .btn:active{transform:scale(.98)}
+  #menu .tip{margin-top:16px;color:var(--muted);font-size:11.5px;line-height:1.9}
+  #menu .tip kbd{
+    background:var(--panel2);border:1px solid var(--border);border-radius:5px;
+    padding:1px 6px;font-size:10.5px;color:var(--text);
+  }
+
+  #hud{top:14px;left:14px;padding:14px 18px;display:flex;flex-direction:column;gap:9px;min-width:158px;
+    backdrop-filter:blur(8px);box-shadow:0 8px 30px -12px rgba(26,35,50,.18)}
+  #hud .row{display:flex;align-items:baseline;gap:8px}
+  #hud .lbl{color:var(--muted);font-size:11px;letter-spacing:.12em}
+  #hud .val{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green)}
+  #hud .rank{color:var(--amber)}
+
+  #leaderboard{
+    top:14px;right:14px;padding:14px 18px;min-width:190px;max-width:250px;
+    backdrop-filter:blur(8px);box-shadow:0 8px 30px -12px rgba(26,35,50,.18);
+  }
+  #leaderboard .title{font-size:11px;color:var(--muted);letter-spacing:.2em;margin-bottom:8px}
+  #leaderboard .lb-row{display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px}
+  #leaderboard .lb-n{color:var(--muted);width:18px;text-align:right;font-variant-numeric:tabular-nums}
+  #leaderboard .lb-n.top{color:var(--amber);font-weight:700}
+  #leaderboard .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #leaderboard .lb-name.ai{color:var(--muted);font-style:italic}
+  #leaderboard .lb-len{color:var(--muted);font-variant-numeric:tabular-nums}
+  #leaderboard .lb-me .lb-name{color:var(--green);font-weight:600}
+
+  #death{
+    top:50%;left:50%;transform:translate(-50%,-50%);width:min(360px,90vw);
+    text-align:center;display:none;
+    backdrop-filter:blur(8px);box-shadow:0 20px 60px -20px rgba(225,29,72,.25);
+  }
+  #death h2{font-size:28px;margin-bottom:4px;
+    background:linear-gradient(135deg,#e11d48,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
+  #death .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  #death .sub b{color:var(--text);font-size:15px}
+  #death .btn{
+    width:100%;background:var(--green);color:#fff;border:none;border-radius:10px;
+    padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px;
+  }
+  #death .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border)}
+
+  #minimap{
+    bottom:14px;right:14px;width:140px;height:140px;padding:0;overflow:hidden;
+    background:rgba(255,255,255,.9);
+  }
+  #minimap canvas{width:100%;height:100%;display:block}
+
+  #conn{
+    top:14px;left:50%;transform:translateX(-50%);padding:6px 14px;font-size:11px;
+    color:var(--muted);letter-spacing:.1em;border-radius:99px;
+  }
+  #conn.ok{color:var(--green);border-color:rgba(52,211,153,.4)}
+  #conn.err{color:var(--rose);border-color:rgba(251,113,133,.4)}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div class="panel" id="conn">正在连接服务器…</div>
+
+<div class="panel" id="menu">
+  <h1>贪吃蛇大作战</h1>
+  <div class="tagline">多人实时竞技 · 活到最后就是王</div>
+  <input id="name" maxlength="12" placeholder="输入你的名字" autocomplete="off">
+  <div class="field-label">选择皮肤</div>
+  <div id="skins"></div>
+  <button class="btn" id="startBtn">进入战场</button>
+  <div class="tip">
+    鼠标控制方向，<kbd>按住鼠标左键</kbd> 或 <kbd>空格</kbd> 加速<br>
+    吃掉光点长大，撞到其他蛇就出局，AI 蛇陪玩不冷场！
+  </div>
+</div>
+
+<div class="panel" id="hud" style="display:none">
+  <div class="row"><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
+  <div class="row"><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
+  <div class="row"><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
+</div>
+
+<div class="panel" id="leaderboard" style="display:none">
+  <div class="title">实时排行榜</div>
+  <div id="lbBody"></div>
+</div>
+
+<div class="panel" id="minimap" style="display:none"><canvas id="mm"></canvas></div>
+
+<div class="panel" id="death">
+  <h2>你出局了</h2>
+  <div class="sub">本局长度 <b id="dLen">0</b> · 排名 <b id="dRank">?</b></div>
+  <button class="btn" id="respawnBtn">再来一局</button>
+  <button class="btn ghost" id="menuBtn">返回菜单</button>
+</div>
+
+<script>
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=innerWidth;H=innerHeight;
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',resize);resize();
+
+const WORLD=4000;
+let ws=null;
+const state={
+  selfId:null,selfColor:'#34d399',
+  snakes:new Map(),foods:new Map(),
+  camX:WORLD/2,camY:WORLD/2,
+  myLen:12,myRank:'?',
+  targetAngle:0,boosting:false,
+  connected:false,inGame:false,
+  mouse:{x:W/2,y:H/2},touch:null,
+  rank:[],
+  lastSend:0
+};
+
+const $=id=>document.getElementById(id);
+
+// ---------- 皮肤系统 ----------
+const SKINS=[
+  {id:'green', name:'翡翠', color:'#059669', pattern:'stripe'},
+  {id:'cyan',  name:'蔚蓝', color:'#0891b2', pattern:'dot'},
+  {id:'amber', name:'琥珀', color:'#d97706', pattern:'zebra'},
+  {id:'rose',  name:'玫瑰', color:'#e11d48', pattern:'dot'},
+  {id:'violet',name:'紫罗兰',color:'#7c3aed', pattern:'stripe'},
+  {id:'coral', name:'珊瑚', color:'#ea580c', pattern:'zebra'},
+  {id:'sky',   name:'天青', color:'#0284c7', pattern:'plain'},
+  {id:'lime',  name:'青柠', color:'#65a30d', pattern:'stripe'},
+  {id:'pink',  name:'樱粉', color:'#db2777', pattern:'zebra'},
+  {id:'slate', name:'石墨', color:'#475569', pattern:'plain'},
+  {id:'gold',  name:'鎏金', color:'#ca8a04', pattern:'dot'},
+  {id:'teal',  name:'松石', color:'#0d9488', pattern:'plain'},
+];
+let mySkin=SKINS[0].id;
+(function buildSkins(){
+  const box=$('skins');
+  box.innerHTML=SKINS.map(s=>`<div class="skin ${s.pattern}" data-id="${s.id}" title="${s.name}" style="background:${s.color}"></div>`).join('');
+  box.querySelectorAll('.skin').forEach(el=>{
+    el.onclick=()=>{
+      box.querySelectorAll('.skin').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+      mySkin=el.dataset.id;
+      localStorage.setItem('snake_skin',mySkin);
+    };
+  });
+  const saved=localStorage.getItem('snake_skin');
+  if(saved&&SKINS.some(s=>s.id===saved)){
+    mySkin=saved;
+    box.querySelector(`[data-id="${saved}"]`)?.classList.add('sel');
+  }else{
+    box.querySelector(`[data-id="${mySkin}"]`)?.classList.add('sel');
+  }
+})();
+function skinOf(id){return SKINS.find(s=>s.id===id)||SKINS[0]}
+function skinColor(id){return skinOf(id).color}
+
+function connect(){
+  const proto=location.protocol==='https:'?'wss://':'ws://';
+  ws=new WebSocket(proto+location.host);
+  ws.onopen=()=>{
+    state.connected=true;
+    $('conn').textContent='已连接 · 输入名字开始';
+    $('conn').classList.add('ok');
+    setStatus('ok');
+  };
+  ws.onmessage=e=>{
+    let msg;try{msg=JSON.parse(e.data)}catch(err){return}
+    handle(msg);
+  };
+  ws.onclose=()=>{
+    state.connected=false;state.inGame=false;
+    $('conn').textContent='连接断开，请刷新重连';
+    $('conn').classList.remove('ok');$('conn').classList.add('err');
+    showMenu();
+  };
+}
+
+function handle(msg){
+  switch(msg.type){
+    case 'init':
+      state.selfId=msg.selfId;state.selfColor=msg.selfColor;
+      state.snakes.clear();state.foods.clear();
+      for(const s of msg.snakes)state.snakes.set(s.id,s);
+      for(const f of msg.foods)state.foods.set(f.id,f);
+      enterGame();
+      break;
+    case 'state':
+      for(const s of msg.snakes){
+        const old=state.snakes.get(s.id);
+        state.snakes.set(s.id,Object.assign({prev:old||null},s));
+      }
+      // 清理不在场蛇
+      const aliveIds=new Set(msg.snakes.map(s=>s.id));
+      for(const id of [...state.snakes.keys()])if(!aliveIds.has(id))state.snakes.delete(id);
+      for(const f of msg.fadd)state.foods.set(f.id,f);
+      for(const id of msg.fdel)state.foods.delete(id);
+      if(msg.rank&&msg.rank.length){
+        state.rank=msg.rank;
+        const me=msg.rank.findIndex(r=>r.name===myName());
+        state.myRank=me>=0?me+1:'?';
+        renderLeaderboard();
+      }
+      break;
+    case 'death':
+      if(msg.id===state.selfId){showDeath();return}
+      state.snakes.delete(msg.id);
+      break;
+    case 'gameover':
+      $('dLen').textContent=msg.len;
+      $('dRank').textContent=msg.rank>0?msg.rank:'?';
+      break;
+  }
+}
+
+let myNameVal='';
+function myName(){return myNameVal}
+function setStatus(ok){}
+
+function enterGame(){
+  state.inGame=true;
+  $('menu').style.display='none';
+  $('hud').style.display='block';
+  $('leaderboard').style.display='block';
+  $('minimap').style.display='block';
+  $('conn').style.display='none';
+  const me=state.snakes.get(state.selfId);
+  if(me){state.camX=me.x;state.camY=me.y}
+}
+
+function showDeath(){
+  state.inGame=false;
+  $('hud').style.display='none';
+  $('leaderboard').style.display='none';
+  $('minimap').style.display='none';
+  $('death').style.display='block';
+}
+
+function hideDeath(){$('death').style.display='none'}
+function showMenu(){
+  hideDeath();
+  $('hud').style.display='none';
+  $('leaderboard').style.display='none';
+  $('minimap').style.display='none';
+  $('menu').style.display='block';
+  $('conn').style.display='block';
+}
+
+$('startBtn').onclick=()=>{
+  myNameVal=($('name').value||'').trim()||('玩家'+Math.floor(100+Math.random()*900));
+  if(!state.connected){connect();setTimeout(()=>ws&&ws.readyState===1&&sendJoin(),300)}
+  else sendJoin();
+};
+function sendJoin(){
+  ws.send(JSON.stringify({type:'join',name:myNameVal,skin:mySkin}));
+}
+$('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('startBtn').click()});
+
+$('respawnBtn').onclick=()=>{
+  hideDeath();
+  ws.send(JSON.stringify({type:'respawn',name:myNameVal,skin:mySkin}));
+  $('conn').style.display='none';
+  $('conn').textContent='正在连接服务器…';
+};
+$('menuBtn').onclick=()=>{showMenu();$('conn').style.display='block';$('conn').textContent='已连接 · 输入名字开始';$('conn').classList.add('ok')};
+
+// ---------- 输入 ----------
+canvas.addEventListener('mousemove',e=>{
+  state.mouse.x=e.clientX;state.mouse.y=e.clientY;
+});
+canvas.addEventListener('mousedown',e=>{if(e.button===0)state.boosting=true});
+window.addEventListener('mouseup',e=>{if(e.button===0)state.boosting=false});
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();state.boosting=true}
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='Space')state.boosting=false;
+});
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.touches[0];state.touch={x:t.clientX,y:t.clientY};
+  state.boosting=true;
+},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const t=e.touches[0];state.touch={x:t.clientX,y:t.clientY};
+},{passive:false});
+canvas.addEventListener('touchend',e=>{state.touch=null;state.boosting=false},{passive:false});
+
+// 触摸虚拟摇杆
+const joy={active:false,cx:0,cy:0,dx:0,dy:0};
+canvas.addEventListener('touchstart',e=>{
+  const t=e.touches[0];joy.active=true;joy.cx=t.clientX;joy.cy=t.clientY;joy.dx=0;joy.dy=0;
+},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  const t=e.touches[0];joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;
+},{passive:false});
+canvas.addEventListener('touchend',e=>{joy.active=false;joy.dx=0;joy.dy=0},{passive:false});
+
+function computeInput(){
+  const me=state.snakes.get(state.selfId);
+  if(!me)return;
+  const screenX=me.x-state.camX+W/2;
+  const screenY=me.y-state.camY+H/2;
+  if(joy.active&&(Math.abs(joy.dx)>8||Math.abs(joy.dy)>8)){
+    state.targetAngle=Math.atan2(joy.dy,joy.dx);
+  }else{
+    state.targetAngle=Math.atan2(state.mouse.y-screenY,state.mouse.x-screenX);
+  }
+  // 平滑转向
+  let d=state.targetAngle-me.angle;
+  while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;
+  me.angle=me.angle+d*0.12;
+}
+
+// ---------- 渲染 ----------
+const gridSize=100;
+const mm=document.getElementById('mm');
+const mmctx=mm.getContext('2d');
+mm.width=140;mm.height=140;
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // 背景
+  ctx.fillStyle='#eef2f8';
+  ctx.fillRect(0,0,W,H);
+  const me=state.snakes.get(state.selfId);
+  if(me){
+    // 摄像机平滑跟随
+    state.camX+=(me.x-state.camX)*0.1;
+    state.camY+=(me.y-state.camY)*0.1;
+  }
+  const ox=-state.camX+W/2,oy=-state.camY+H/2;
+
+  // 世界边界
+  ctx.fillStyle='#f4f6fa';
+  ctx.fillRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(ox,oy);
+
+  // 网格
+  ctx.strokeStyle='rgba(92,107,128,.22)';ctx.lineWidth=1;
+  const x0=Math.floor((state.camX-W/2)/gridSize)*gridSize;
+  const y0=Math.floor((state.camY-H/2)/gridSize)*gridSize;
+  ctx.beginPath();
+  for(let x=x0;x<state.camX+W/2+gridSize;x+=gridSize){
+    ctx.moveTo(x,state.camY-H/2);ctx.lineTo(x,state.camY+H/2);
+  }
+  for(let y=y0;y<state.camY+H/2+gridSize;y+=gridSize){
+    ctx.moveTo(state.camX-W/2,y);ctx.lineTo(state.camX+W/2,y);
+  }
+  ctx.stroke();
+
+  // 世界边框
+  ctx.strokeStyle='rgba(225,29,72,.55)';ctx.lineWidth=6;
+  ctx.strokeRect(20,20,WORLD-40,WORLD-40);
+
+  // 食物
+  ctx.fillStyle='#d97706';
+  for(const f of state.foods.values()){
+    if(f.x<state.camX-W/2-20||f.x>state.camX+W/2+20||f.y<state.camY-H/2-20||f.y>state.camY+H/2+20)continue;
+    ctx.beginPath();
+    ctx.arc(f.x,f.y,3.2,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // 蛇
+  for(const s of state.snakes.values()){
+    drawSnake(s,s.id===state.selfId);
+  }
+  ctx.restore();
+
+  // 触摸摇杆
+  if(joy.active){
+    ctx.strokeStyle='rgba(26,35,50,.2)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(joy.cx,joy.cy,40,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='rgba(5,150,105,.45)';
+    ctx.beginPath();ctx.arc(joy.cx+joy.dx,joy.cy+joy.dy,14,0,Math.PI*2);ctx.fill();
+  }
+
+  drawMinimap();
+  requestAnimationFrame(draw);
+}
+
+function drawSnake(s,isMe){
+  if(!s.points||s.points.length<2)return;
+  // 视口裁剪
+  const h=s.points[0];
+  if(h[0]<state.camX-W/2-200||h[0]>state.camX+W/2+200||h[1]<state.camY-H/2-200||h[1]>state.camY+H/2+200)return;
+  // 皮肤颜色（AI 蛇随机色，玩家用所选皮肤）
+  let body=s.color;
+  let pat='stripe';
+  if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
+  const r=Math.min(9,2.2+Math.sqrt(s.len||12)*0.32);
+  ctx.lineCap='round';ctx.lineJoin='round';
+  // 加速光效
+  if(s.boost){
+    ctx.shadowColor=body;ctx.shadowBlur=14;
+  }
+  // 身体
+  const grad=ctx.createLinearGradient(h[0],h[1],s.points[s.points.length-1][0],s.points[s.points.length-1][1]);
+  grad.addColorStop(0,lighten(body,isMe?0.25:0));
+  grad.addColorStop(1,darken(body,0.5));
+  ctx.strokeStyle=isMe?body:grad;
+  ctx.lineWidth=r*2;
+  const pts=s.points;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++){
+    ctx.lineTo(pts[i][0],pts[i][1]);
+  }
+  ctx.stroke();
+  ctx.shadowBlur=0;
+  // 花纹
+  if(pat==='stripe'||pat==='zebra'){
+    const seg=pat==='zebra'?5:7;
+    ctx.strokeStyle='rgba(255,255,255,0.55)';
+    ctx.lineWidth=r*(pat==='zebra'?1.1:0.7);
+    ctx.beginPath();
+    for(let i=2;i<pts.length;i+=seg){
+      ctx.moveTo(pts[i][0],pts[i][1]);ctx.lineTo(pts[Math.min(i+2,pts.length-1)][0],pts[Math.min(i+2,pts.length-1)][1]);
+    }
+    ctx.stroke();
+  }else if(pat==='dot'){
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    for(let i=2;i<pts.length;i+=6){
+      ctx.beginPath();ctx.arc(pts[i][0],pts[i][1],r*0.32,0,Math.PI*2);ctx.fill();
+    }
+  }
+  // 头部
+  ctx.fillStyle=lighten(body,0.3);
+  ctx.beginPath();ctx.arc(h[0],h[1],r,0,Math.PI*2);ctx.fill();
+  // 眼睛
+  const a=Math.atan2(h[1]-(s.points[1]?s.points[1][1]:h[1]),h[0]-(s.points[1]?s.points[1][0]:h[0]));
+  const ex=Math.cos(a),ey=Math.sin(a);
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.arc(h[0]+ex*r*0.6-ey*r*0.5,h[1]+ey*r*0.6+ex*r*0.5,r*0.32,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(h[0]+ex*r*0.6+ey*r*0.5,h[1]+ey*r*0.6-ex*r*0.5,r*0.32,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1a2332';
+  ctx.beginPath();ctx.arc(h[0]+ex*r*0.75-ey*r*0.5,h[1]+ey*r*0.75+ex*r*0.5,r*0.16,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(h[0]+ex*r*0.75+ey*r*0.5,h[1]+ey*r*0.75-ex*r*0.5,r*0.16,0,Math.PI*2);ctx.fill();
+  // 名字
+  const isAI=s.name&&s.name.startsWith('AI·');
+  ctx.font=isAI?'11px system-ui':'12px system-ui';
+  ctx.textAlign='center';
+  if(isAI){
+    ctx.fillStyle='rgba(92,107,128,.85)';
+    ctx.fillText(s.name,h[0],h[1]-r-8);
+  }else{
+    ctx.fillStyle=isMe?'#059669':'rgba(26,35,50,.75)';
+    ctx.fillText(s.name,h[0],h[1]-r-8);
+  }
+  if(isMe){
+    $('myLen').textContent=s.len;
+  }
+}
+
+function drawMinimap(){
+  const s=WORLD;
+  mmctx.fillStyle='#eef2f8';mmctx.fillRect(0,0,140,140);
+  mmctx.strokeStyle='rgba(225,29,72,.5)';mmctx.lineWidth=1;
+  mmctx.strokeRect(1,1,138,138);
+  const k=138/s;
+  mmctx.fillStyle='rgba(217,119,6,.7)';
+  for(const f of state.foods.values()){mmctx.fillRect(f.x*k,f.y*k,1.5,1.5)}
+  for(const sn of state.snakes.values()){
+    mmctx.fillStyle=sn.id===state.selfId?'#059669':'rgba(26,35,50,.5)';
+    mmctx.beginPath();mmctx.arc(sn.x*k,sn.y*k,sn.id===state.selfId?3:1.8,0,Math.PI*2);mmctx.fill();
+  }
+}
+
+function renderLeaderboard(){
+  const body=$('lbBody');
+  body.innerHTML=state.rank.map(r=>{
+    const me=r.name===myName()?' lb-me':'';
+    const cls=r.n<=3?'top':'';
+    const isAI=r.name.startsWith('AI·');
+    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${r.len}</span></div>`;
+  }).join('');
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function lighten(hex,f){
+  const c=hex2rgb(hex);
+  return `rgb(${Math.min(255,Math.round(c[0]+(255-c[0])*f))},${Math.min(255,Math.round(c[1]+(255-c[1])*f))},${Math.min(255,Math.round(c[2]+(255-c[2])*f))})`;
+}
+function darken(hex,f){
+  const c=hex2rgb(hex);
+  return `rgb(${Math.round(c[0]*(1-f))},${Math.round(c[1]*(1-f))},${Math.round(c[2]*(1-f))})`;
+}
+function hex2rgb(hex){
+  const n=parseInt(hex.slice(1),16);
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+
+// 输入上报（节流 ~35ms）
+setInterval(()=>{
+  if(!state.inGame||!ws||ws.readyState!==1)return;
+  const me=state.snakes.get(state.selfId);
+  if(!me)return;
+  computeInput();
+  ws.send(JSON.stringify({type:'input',angle:me.angle,boost:state.boosting}));
+},35);
+
+connect();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

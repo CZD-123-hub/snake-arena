@@ -1,0 +1,12 @@
+{
+  "name": "snake-arena",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@railway/cli": "^5.30.4",
+    "ws": "^8.18.0"
+  }
+}
