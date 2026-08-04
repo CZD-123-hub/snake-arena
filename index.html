@@ -170,7 +170,7 @@ const state={
   selfId:null,selfColor:'#34d399',
   snakes:new Map(),foods:new Map(),
   camX:WORLD/2,camY:WORLD/2,
-  myLen:12,myRank:'?',
+  myLen:12,myRank:'?',selfAngle:0,
   targetAngle:0,boosting:false,
   connected:false,inGame:false,
   mouse:{x:W/2,y:H/2},touch:null,
@@ -371,9 +371,9 @@ function computeInput(){
     state.targetAngle=Math.atan2(state.mouse.y-screenY,state.mouse.x-screenX);
   }
   // 平滑转向
-  let d=state.targetAngle-me.angle;
+  let d=state.targetAngle-state.selfAngle;
   while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;
-  me.angle=me.angle+d*0.12;
+  state.selfAngle=state.selfAngle+d*0.12;
 }
 
 // ---------- 渲染 ----------
@@ -563,7 +563,7 @@ setInterval(()=>{
   const me=state.snakes.get(state.selfId);
   if(!me)return;
   computeInput();
-  ws.send(JSON.stringify({type:'input',angle:me.angle,boost:state.boosting}));
+  ws.send(JSON.stringify({type:'input',angle:state.selfAngle,boost:state.boosting}));
 },35);
 
 connect();
