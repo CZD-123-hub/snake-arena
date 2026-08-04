@@ -118,8 +118,11 @@ function move(s){
   if(hitX)s.angle=Math.PI-s.angle;
   if(hitY)s.angle=-s.angle;
   s.points.unshift({x:nx,y:ny});
-  // 加速燃烧长度
-  if(s.boost)s.targetLen=Math.max(6,s.targetLen-0.25);
+  // 加速燃烧长度和经验
+  if(s.boost){
+    s.targetLen=Math.max(6,s.targetLen-0.25);
+    s.score=Math.max(0,s.score-0.15);
+  }
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
   s.x=nx;s.y=ny;
@@ -232,8 +235,10 @@ function broadcast(obj){
 
 function broadcastState(){
   const sn=[],fadd=[],fdel=[];
+  let online=0;
   for(const s of snakes.values()){
     if(!s.alive)continue;
+    if(s.ws)online++;
     sn.push({id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
       len:Math.round(s.targetLen),score:s.score,boost:s.boost,
       points:s.points.map(p=>[p.x|0,p.y|0])});
@@ -244,14 +249,14 @@ function broadcastState(){
   for(const id of cur)if(!prev.has(id))fadd.push(foods.get(id));
   for(const id of prev)if(!foods.has(id))fdel.push(id);
   global.__prevFoods=new Set(cur);
-  const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.targetLen-a.targetLen).slice(0,10);
-  const rank=sorted.map((s,i)=>({n:i+1,name:s.name,len:Math.round(s.targetLen)}));
+  const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score).slice(0,10);
+  const rank=sorted.map((s,i)=>({n:i+1,id:s.id,name:s.name,len:Math.round(s.targetLen),score:s.score}));
   // 吃食物事件（动画用）
   const eats=[];
   for(const s of snakes.values()){
     if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
   }
-  broadcast({type:'state',snakes:sn,fadd,fdel,rank,eats});
+  broadcast({type:'state',snakes:sn,fadd,fdel,rank,eats,online});
 }
 
 function sendInit(ws,s){

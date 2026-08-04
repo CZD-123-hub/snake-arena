@@ -260,10 +260,12 @@ function handle(msg){
       for(const id of msg.fdel)state.foods.delete(id);
       if(msg.rank&&msg.rank.length){
         state.rank=msg.rank;
-        const me=msg.rank.findIndex(r=>r.name===myName());
+        const me=msg.rank.findIndex(r=>r.id===state.selfId);
         state.myRank=me>=0?me+1:'?';
+        $('myRank').textContent=state.myRank;
         renderLeaderboard();
       }
+      if(msg.online!=null)$('online').textContent=msg.online;
       // 吃食物光效
       if(msg.eats)for(const e of msg.eats){
         for(const f of e.f)if(f.x!=null)explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
@@ -584,10 +586,10 @@ function drawMinimap(){
 function renderLeaderboard(){
   const body=$('lbBody');
   body.innerHTML=state.rank.map(r=>{
-    const me=r.name===myName()?' lb-me':'';
+    const me=r.id===state.selfId?' lb-me':'';
     const cls=r.n<=3?'top':'';
     const isAI=r.name.startsWith('AI·');
-    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${r.len}</span></div>`;
+    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${r.score||0}分</span></div>`;
   }).join('');
 }
 
