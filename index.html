@@ -301,7 +301,7 @@
 </div>
 
 <div class="panel" id="leaderboard" style="display:none">
-  <div class="title">实时排行榜</div>
+  <div class="title">实时排行榜<span id="roundTimer" style="float:right;color:var(--amber);font-weight:700">--:--</span></div>
   <div id="lbBody"></div>
 </div>
 
@@ -593,6 +593,10 @@ function handle(msg){
         renderLeaderboard();
       }
       if(msg.online!=null)$('online').textContent=msg.online;
+      if(msg.roundRemain!=null){
+        const m=Math.floor(msg.roundRemain/60),sec=msg.roundRemain%60;
+        $('roundTimer').textContent=(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;
+      }
       const selfSnake=state.snakes.get(state.selfId);
       if(selfSnake&&selfSnake.score!=null)$('myScore').textContent=Math.floor(selfSnake.score);
       if(selfSnake&&selfSnake.kills!=null)$('myKills').textContent=selfSnake.kills;

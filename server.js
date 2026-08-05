@@ -624,7 +624,13 @@ function effObj(s,now){
   return {shield:Math.max(0,(s.effects.shield||0)-now),magnet:Math.max(0,(s.effects.magnet||0)-now),
     boost:Math.max(0,(s.effects.boost||0)-now),stealth:Math.max(0,(s.effects.stealth||0)-now)};
 }
-const VIEW=1300; // AOI 视野半径：视野内蛇发完整点，视野外只发头部信息（带宽降 70%+）
+const VIEW_IN=1250, VIEW_OUT=1500; // AOI 滞回：进视野 1250 / 出视野 1500，中间区间保持上次状态，消除边缘闪烁
+// 蛇对象统一构建（不含 points）：broadcastState/sendInit 复用，保证字段一致
+function snakeMsg(s,now){
+  return {id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
+    len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
+    prot:now<s.protectUntil,fx:effObj(s,now)};
+}
 function broadcastState(room){
   const now=Date.now();
   const fadd=[],fdel=[],iadd=[],idel=[];
@@ -634,9 +640,7 @@ function broadcastState(room){
   for(const s of room.snakes.values()){
     if(!s.alive)continue;
     if(s.ws)online++;
-    metas.set(s.id,{id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
-      len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
-      prot:now<s.protectUntil,fx:effObj(s,now)});
+    metas.set(s.id,snakeMsg(s,now));
   }
   const cur=[...room.foods.keys()];
   for(const id of cur)if(!room.prevFoods.has(id))fadd.push(room.foods.get(id));
@@ -654,16 +658,22 @@ function broadcastState(room){
   for(const s of room.snakes.values()){
     if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
   }
-  // 公共载荷序列化一次，蛇数组按玩家视野个性化
-  const base=JSON.stringify({fadd,fdel,rank,eats,online,iadd,idel,corpses});
+  // 公共载荷序列化一次，蛇数组按玩家视野个性化（滞回裁剪防边缘闪烁）
+  const roundRemain=Math.max(0,Math.round((room.roundEndsAt-now)/1000));
+  const base=JSON.stringify({fadd,fdel,rank,eats,online,iadd,idel,corpses,roundRemain});
   for(const p of room.snakes.values()){
     if(!p.ws)continue;
+    if(!p._full)p._full=new Map(); // 该玩家视角下各蛇的"上次完整状态"（per-player 滞回）
     const sn=[];
     for(const s of room.snakes.values()){
       if(!s.alive)continue;
       const m=metas.get(s.id);
       const dx=p.x-s.x,dy=p.y-s.y;
-      if(dx*dx+dy*dy<VIEW*VIEW){
+      const d2=dx*dx+dy*dy;
+      const prev=p._full.get(s.id)===true;
+      const full = d2<VIEW_IN*VIEW_IN ? true : (d2>VIEW_OUT*VIEW_OUT ? false : prev);
+      p._full.set(s.id,full);
+      if(full){
         sn.push({...m,points:ptsSampled(s.points)});
       }else{
         sn.push(m);
@@ -675,10 +685,8 @@ function broadcastState(room){
 
 function sendInit(ws,room,s){
   const now=Date.now();
-  const allSnakes=[...room.snakes.values()].filter(x=>x.alive).map(x=>({id:x.id,name:x.name,color:x.color,skin:x.skin,
-    x:Math.round(x.x),y:Math.round(x.y),len:Math.round(x.targetLen),score:x.score,boost:x.boost,kills:x.kills||0,
-    prot:now<x.protectUntil,fx:effObj(x,now),
-    points:ptsSampled(x.points)}));
+  const allSnakes=[...room.snakes.values()].filter(x=>x.alive)
+    .map(x=>({...snakeMsg(x,now),points:ptsSampled(x.points)}));
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
     room:room.code,token:s.sessionToken,
     snakes:allSnakes,

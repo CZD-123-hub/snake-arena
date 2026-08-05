@@ -147,6 +147,23 @@ async function run() {
       w4.close();
     } else bad('重连测试 join 超时');
 
+    // 场景 7：AOI 协议完整性（state 蛇对象结构 + 自己蛇必有 points + 无 points 蛇字段完整）
+    const aoiState = c1.msgs.slice(-20).find(x => x.type === 'state');
+    if (aoiState) {
+      const badMeta = aoiState.snakes.filter(s =>
+        !s.id || s.name == null || s.x == null || s.y == null || s.len == null || s.score == null);
+      if (badMeta.length === 0) ok('AOI state 蛇对象字段完整（' + aoiState.snakes.length + ' 条）');
+      else bad('AOI 蛇对象缺字段', JSON.stringify(badMeta[0]).slice(0, 120));
+      const selfSnake = aoiState.snakes.find(s => s.id === c1.init.selfId);
+      if (selfSnake && selfSnake.points && selfSnake.points.length > 1) ok('AOI 自己蛇带完整 points');
+      else bad('AOI 自己蛇缺 points');
+      const dotSnakes = aoiState.snakes.filter(s => !s.points || s.points.length < 2);
+      if (dotSnakes.every(s => s.x != null && s.y != null && s.name != null)) ok('AOI 精简蛇（无 points）字段完整（' + dotSnakes.length + ' 条）');
+      else bad('AOI 精简蛇字段异常');
+      if (aoiState.roundRemain != null) ok('state 带轮次倒计时（' + aoiState.roundRemain + 's）');
+      else bad('state 缺 roundRemain');
+    } else bad('未收到 state');
+
     c1.ws.close(); c2.ws.close();
     await sleep(200);
   } finally {
