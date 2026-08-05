@@ -189,10 +189,12 @@ function tick(){
     const h=headOf(s);
     for(const t of snakes.values()){
       if(!t.alive||t.id===s.id||t.paused)continue;
+      // 碰撞半径随双方经验增大（大蛇更容易吃小蛇）
+      const hitR=Math.min(34,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.35);
       for(let i=0;i<t.points.length;i+=2){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;
-        if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){
+        if(dx*dx+dy*dy<hitR*hitR){
           if(s.score>t.score){
             // 大鱼吃小鱼：吃掉对方，获得全部经验和长度，击杀+1
             t.eatenBy=s.name;

@@ -669,8 +669,8 @@ function drawSnake(s,isMe,usePts){
   let body=s.color;
   let pat='stripe';
   if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
-  // 体型：随经验增长但封顶（长度无限增长，宽度有限）
-  const r=Math.min(10,2.2+Math.sqrt(s.score||0)*0.35);
+  // 体型：前期随经验明显变粗，后期封顶（长度无限，宽度有限）
+  const r=Math.min(13,2.5+Math.sqrt(s.score||0)*0.55);
   ctx.lineCap='round';ctx.lineJoin='round';
   // 加速光效
   if(s.boost){
