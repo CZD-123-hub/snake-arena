@@ -57,8 +57,6 @@ function createRoom(code){
 }
 const rooms=new Map();
 const DEFAULT_CODE='global';
-const ROOM_TTL_MS=10*60*1000;   // 房间 10 分钟无人后销毁
-rooms.set(DEFAULT_CODE,createRoom(DEFAULT_CODE));
 function getRoom(code){
   const c=String(code||DEFAULT_CODE).slice(0,12)||DEFAULT_CODE;
   if(!rooms.has(c))rooms.set(c,createRoom(c));
@@ -66,18 +64,15 @@ function getRoom(code){
   room.lastActiveAt=Date.now();
   return room;
 }
-// 清理空房间：非默认房间 10 分钟无玩家且无 AI 活动则销毁
+// 清理空房间：无真实玩家（真人连接）立即销毁并释放定时器
+// 默认 global 房间同样适用：没人就来，有人来再重建
 function cleanRooms(){
-  const now=Date.now();
   for(const [code,room] of rooms){
-    if(code===DEFAULT_CODE)continue;
-    if(now-room.lastActiveAt>ROOM_TTL_MS){
-      let anyPlayer=false;
-      for(const s of room.snakes.values()){if(s.ws){anyPlayer=true;break}}
-      if(!anyPlayer){
-        for(const t of room.timers)clearTimeout(t);
-        rooms.delete(code);
-      }
+    let anyPlayer=false;
+    for(const s of room.snakes.values()){if(s.ws){anyPlayer=true;break}}
+    if(!anyPlayer){
+      for(const t of room.timers)clearTimeout(t);
+      rooms.delete(code);
     }
   }
 }
