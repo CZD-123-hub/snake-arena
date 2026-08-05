@@ -5,10 +5,12 @@ const PORT=process.env.PORT||8731;
 const WORLD=4000;                 // 世界边长
 const FOOD_TARGET=650;            // 食物目标数量
 const TICK_MS=50;                 // 20 tick/s 服务端权威
-const MAX_GROW=0.6;               // 吃食物增长
 const SPEED=3.4, SPEED_BOOST=5.6; // 每 tick 像素
 const HEAD_R=11, BODY_R=8;
-const AI_TARGET=12;               // AI 蛇目标数量
+const AI_TARGET=12;               // 每房间 AI 蛇目标数量
+const PROTECT_MS=3000;            // 新手保护时长
+const ITEM_TARGET=4;              // 每房间道具数量
+const ITEM_DUR={shield:3000,magnet:4000,boost:3000,stealth:4000};
 
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png'};
 const server=http.createServer((req,res)=>{
@@ -24,44 +26,71 @@ const wss=new WebSocketServer({server});
 
 const COLORS=['#34d399','#22d3ee','#fbbf24','#fb7185','#a78bfa','#f97316','#4ade80','#f472b6','#60a5fa','#e2e8f0','#facc15','#2dd4bf'];
 const AI_NAMES=['灵蛇','幻影','疾风','雷霆','青竹','赤焰','玄冰','紫电','追光','贪吃'];
-let nextId=1;
-let aiCount=0;
-const snakes=new Map();   // id -> snake
-const foods=new Map();    // id -> food
-const deadQueue=[];
+const ITEM_KINDS=['shield','magnet','boost','stealth'];
 
 function rnd(n){return Math.random()*n}
-function spawnFood(n){
+
+// ---------- 房间 ----------
+function createRoom(code){
+  const room={
+    code,
+    snakes:new Map(),foods:new Map(),items:new Map(),
+    deadQueue:[],nextId:1,aiCount:0,
+    prevFoods:new Set(),prevItems:new Set(),aiCheck:0
+  };
+  spawnFood(room,FOOD_TARGET);
+  spawnAI(room,AI_TARGET);
+  ensureItems(room);
+  return room;
+}
+const rooms=new Map();
+const DEFAULT_CODE='global';
+rooms.set(DEFAULT_CODE,createRoom(DEFAULT_CODE));
+function getRoom(code){
+  const c=String(code||DEFAULT_CODE).slice(0,12)||DEFAULT_CODE;
+  if(!rooms.has(c))rooms.set(c,createRoom(c));
+  return rooms.get(c);
+}
+
+// ---------- 生成 ----------
+function spawnFood(room,n){
   for(let i=0;i<n;i++){
-    const id='f'+(nextId++);
-    const big=rnd(1)<0.15;                 // 15% 大经验球
-    foods.set(id,{id,x:40+rnd(WORLD-80),y:40+rnd(WORLD-80),big});
+    const id='f'+(room.nextId++);
+    const big=rnd(1)<0.15;
+    room.foods.set(id,{id,x:40+rnd(WORLD-80),y:40+rnd(WORLD-80),big});
   }
 }
-spawnFood(FOOD_TARGET);
-
-function spawnAI(n){
+function spawnItem(room){
+  const kind=ITEM_KINDS[Math.floor(rnd(ITEM_KINDS.length))];
+  const id='i'+(room.nextId++);
+  room.items.set(id,{id,kind,x:100+rnd(WORLD-200),y:100+rnd(WORLD-200)});
+}
+function ensureItems(room){
+  while(room.items.size<ITEM_TARGET)spawnItem(room);
+}
+function spawnAI(room,n){
   for(let i=0;i<n;i++){
-    const name=AI_NAMES[aiCount%AI_NAMES.length]+(Math.floor(aiCount/AI_NAMES.length)||'');
-    aiCount++;
-    const s=createSnake(null,'AI·'+name);
+    const name=AI_NAMES[room.aiCount%AI_NAMES.length]+(Math.floor(room.aiCount/AI_NAMES.length)||'');
+    room.aiCount++;
+    const s=createSnake(room,null,'AI·'+name);
     s.ai=true;
     s.thinkTimer=0;
-    snakes.set(s.id,s);
+    room.snakes.set(s.id,s);
   }
 }
-  spawnAI(AI_TARGET);
-function createSnake(ws,name,skin){
-  const id='s'+(nextId++);
+function createSnake(room,ws,name,skin){
+  const id='s'+(room.nextId++);
   const angle=rnd(Math.PI*2);
   const s={
     id,ws,name:name||('玩家'+Math.floor(100+rnd(900))),
     color:COLORS[Math.floor(rnd(COLORS.length))],
     skin:skin||'',
     x:200+rnd(WORLD-400),y:200+rnd(WORLD-400),
-    angle, boost:false,targetLen:12,score:0,kills:0,
+    angle,boost:false,targetLen:12,score:0,kills:0,
     points:[],alive:true,
-    boostHeld:false,ai:false,thinkTimer:0,paused:false
+    boostHeld:false,ai:false,thinkTimer:0,paused:false,
+    protectUntil:Date.now()+PROTECT_MS,
+    effects:{},lastKillAt:0,killStreak:0,emoteUntil:0
   };
   for(let i=0;i<12;i++){
     s.points.push({x:s.x-i*9*Math.cos(angle),y:s.y-i*9*Math.sin(angle)});
@@ -71,36 +100,32 @@ function createSnake(ws,name,skin){
 
 function headOf(s){return s.points[0]}
 
-function thinkAI(s){
+// ---------- AI ----------
+function thinkAI(room,s){
   if(!s.alive||!s.ai)return;
   const h=headOf(s);
-  // 避墙：靠近边界时转向中心
   const MARGIN=180;
   let wallTarget=null;
   if(h.x<MARGIN)wallTarget=0;
   else if(h.x>WORLD-MARGIN)wallTarget=Math.PI;
   else if(h.y<MARGIN)wallTarget=Math.PI/2;
   else if(h.y>WORLD-MARGIN)wallTarget=-Math.PI/2;
-  // 危险检测：其他蛇头（含玩家）是否逼近
   let danger=null,dangerDist=240;
-  for(const t of snakes.values()){
+  for(const t of room.snakes.values()){
     if(!t.alive||t.id===s.id)continue;
     const th=headOf(t);
-    const dx=th.x-h.x,dy=th.y-h.y;
-    const d=Math.hypot(dx,dy);
+    const d=Math.hypot(th.x-h.x,th.y-h.y);
     if(d<dangerDist){danger={x:th.x,y:th.y};dangerDist=d}
   }
   let target=null;
   if(wallTarget!=null){
     target=wallTarget;
   }else if(danger&&dangerDist<170){
-    // 逃离：垂直于威胁方向
     const a=Math.atan2(h.y-danger.y,h.x-danger.x);
     target=a+(Math.random()<0.5?Math.PI/2:-Math.PI/2);
   }else{
-    // 寻食：找最近食物
     let best=null,bd=1e18;
-    for(const f of foods.values()){
+    for(const f of room.foods.values()){
       const dx=f.x-h.x,dy=f.y-h.y;
       const d=dx*dx+dy*dy;
       if(d<bd){bd=d;best=f}
@@ -116,28 +141,33 @@ function thinkAI(s){
   s.boost=!!(danger&&dangerDist<200);
 }
 
-function move(s){
+// ---------- 移动/进食 ----------
+function move(room,s){
   const h=headOf(s);
+  const now=Date.now();
+  const freeBoost=!!(s.effects.boost&&now<s.effects.boost);
   const sp=s.boost?SPEED_BOOST:SPEED;
-  let nx=h.x+Math.cos(s.angle)*sp, ny=h.y+Math.sin(s.angle)*sp;
-  // 碰到边界：出局
+  let nx=h.x+Math.cos(s.angle)*sp,ny=h.y+Math.sin(s.angle)*sp;
   if(nx<BODY_R||nx>WORLD-BODY_R||ny<BODY_R||ny>WORLD-BODY_R)return false;
   s.points.unshift({x:nx,y:ny});
-  // 加速燃烧经验（长度自动跟随）
-  if(s.boost)s.score=Math.max(0,s.score-0.003);
+  // 加速燃烧经验（磁铁/极速道具期间不消耗）
+  if(s.boost&&!freeBoost)s.score=Math.max(0,s.score-0.003);
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
   s.x=nx;s.y=ny;
   return true;
 }
 
-function eatFood(s){
+function eatFood(room,s){
   const h=headOf(s);
-  for(const [id,f] of foods){
+  const now=Date.now();
+  const magnet=!!(s.effects.magnet&&now<s.effects.magnet);
+  const r=magnet?70:13;
+  for(const [id,f] of room.foods){
     const dx=h.x-f.x,dy=h.y-f.y;
-    const eatR=f.big?18:13;
+    const eatR=f.big?18:r;
     if(dx*dx+dy*dy<eatR*eatR){
-      foods.delete(id);
+      room.foods.delete(id);
       if(f.big)s.score+=5;
       else s.score+=1;
       s.ateFoods=s.ateFoods||[];
@@ -145,163 +175,205 @@ function eatFood(s){
     }
   }
 }
+function pickupItems(room,s){
+  const h=headOf(s);
+  const now=Date.now();
+  for(const [id,it] of room.items){
+    const dx=h.x-it.x,dy=h.y-it.y;
+    if(dx*dx+dy*dy<18*18){
+      room.items.delete(id);
+      s.effects[it.kind]=now+ITEM_DUR[it.kind];
+      broadcast(room,{type:'item',id:s.id,kind:it.kind,x:Math.round(it.x),y:Math.round(it.y)});
+    }
+  }
+}
 
-function kill(s,why){
+// ---------- 死亡 ----------
+function kill(room,s,why){
   s.alive=false;
   const newFoods=[];
   const step=Math.max(6,Math.floor(s.points.length/40));
   for(let i=0;i<s.points.length;i+=step){
     const p=s.points[i];
     if(rnd(1)<0.6){
-      const id='f'+(nextId++);
-      foods.set(id,{id,x:p.x,y:p.y,big:rnd(1)<0.1});
+      const id='f'+(room.nextId++);
+      room.foods.set(id,{id,x:p.x,y:p.y,big:rnd(1)<0.1});
       newFoods.push(id);
     }
   }
-  deadQueue.push({id:s.id,at:Date.now(),ai:s.ai});
-  broadcast({type:'death',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods,why:why||''});
+  room.deadQueue.push({id:s.id,at:Date.now(),ai:s.ai});
+  broadcast(room,{type:'death',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods,why:why||''});
   if(s.ws){
-    try{s.ws.send(JSON.stringify({type:'gameover',len:Math.round(s.targetLen),score:s.score,rank:currentRank(s.id)}));}catch(e){}
+    try{s.ws.send(JSON.stringify({type:'gameover',len:Math.round(s.targetLen),score:s.score,kills:s.kills,rank:currentRank(room,s.id)}));}catch(e){}
   }
 }
 
-function currentRank(id){
-  const list=[...snakes.values()].filter(x=>x.alive).sort((a,b)=>b.targetLen-a.targetLen);
+function currentRank(room,id){
+  const list=[...room.snakes.values()].filter(x=>x.alive).sort((a,b)=>b.score-a.score);
   return list.findIndex(x=>x.id===id)+1;
 }
 
+// ---------- 主循环 ----------
 function tick(){
-  for(const s of snakes.values()){
+  for(const room of rooms.values()){
+    tickRoom(room);
+  }
+}
+function tickRoom(room){
+  const now=Date.now();
+  for(const s of room.snakes.values()){
     if(!s.alive||s.paused)continue;
-    // 长度完全由经验决定：经验越少长度越短
     s.targetLen=Math.max(6,12+s.score);
     if(s.ai){
       s.thinkTimer=(s.thinkTimer||0)-1;
-      if(s.thinkTimer<=0){thinkAI(s);s.thinkTimer=3}
+      if(s.thinkTimer<=0){thinkAI(room,s);s.thinkTimer=3}
     }
-    const moved=move(s);
-    if(!moved){kill(s,'wall');continue}
-    eatFood(s);
+    const moved=move(room,s);
+    if(!moved){kill(room,s,'wall');continue}
+    eatFood(room,s);
+    pickupItems(room,s);
   }
-  // 碰撞：只有被更高经验的蛇吃掉才出局（同经验互撞无伤害）
-  for(const s of snakes.values()){
+  // 碰撞：新手保护/护盾/隐身期间免碰撞；大鱼吃小鱼
+  for(const s of room.snakes.values()){
     if(!s.alive||s.paused)continue;
     const h=headOf(s);
-    for(const t of snakes.values()){
+    for(const t of room.snakes.values()){
       if(!t.alive||t.id===s.id||t.paused)continue;
-      // 碰撞半径随双方经验增大（大蛇更容易吃小蛇）
+      if(now<s.protectUntil||now<t.protectUntil)continue;
+      if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
+      if(t.effects.stealth&&now<t.effects.stealth)continue;
       const hitR=Math.min(34,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.35);
       for(let i=0;i<t.points.length;i+=2){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;
         if(dx*dx+dy*dy<hitR*hitR){
           if(s.score>t.score){
-            // 大鱼吃小鱼：吃掉对方，获得全部经验和长度，击杀+1
             t.eatenBy=s.name;
-            const gained=Math.max(1,Math.floor(t.score));
+            const now2=Date.now();
+            if(now2-(s.lastKillAt||0)<5000)s.killStreak=(s.killStreak||0)+1;
+            else s.killStreak=1;
+            s.lastKillAt=now2;
+            const mult=s.killStreak>=2?1.5:1;
+            const gained=Math.max(1,Math.floor(t.score*mult));
             s.score+=gained;
             s.kills=(s.kills||0)+1;
-            kill(t,'eaten:'+s.name);
-            broadcast({type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
+            kill(room,t,'eaten:'+s.name);
+            broadcast(room,{type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
+            if(s.killStreak>=2)broadcast(room,{type:'killstreak',killer:s.id,count:s.killStreak});
           }else if(t.score>s.score){
-            // 对方经验更高：被吃
-            kill(s,'hit:'+t.name+'@'+i);
+            kill(room,s,'hit:'+t.name+'@'+i);
           }
-          // 经验相同：擦身而过，互不伤害
           break;
         }
       }
       if(!s.alive)break;
     }
   }
-  // 清理死亡蛇；AI 蛇 4 秒后复活
-  const now=Date.now();
-  for(let i=deadQueue.length-1;i>=0;i--){
-    if(now-deadQueue[i].at>3000){
-      const d=deadQueue[i];
-      snakes.delete(d.id);
-      if(d.ai)setTimeout(()=>spawnAI(1),2000+rnd(5000));
-      deadQueue.splice(i,1);
+  // 清理死亡蛇；AI 复活
+  for(let i=room.deadQueue.length-1;i>=0;i--){
+    if(now-room.deadQueue[i].at>3000){
+      const d=room.deadQueue[i];
+      room.snakes.delete(d.id);
+      if(d.ai)setTimeout(()=>{if(rooms.has(room.code))spawnAI(room,1)},2000+rnd(5000));
+      room.deadQueue.splice(i,1);
     }
   }
-  // 定期补充 AI：存活 AI 过少时补到目标数（每 2 秒检查一次）
-  if(now-(global.__aiCheck||0)>2000){
-    global.__aiCheck=now;
+  // 定期补充 AI
+  if(now-(room.aiCheck||0)>2000){
+    room.aiCheck=now;
     let aiAlive=0;
-    for(const s of snakes.values())if(s.alive&&s.ai)aiAlive++;
-    if(aiAlive<AI_TARGET)spawnAI(AI_TARGET-aiAlive);
+    for(const s of room.snakes.values())if(s.alive&&s.ai)aiAlive++;
+    if(aiAlive<AI_TARGET)spawnAI(room,AI_TARGET-aiAlive);
   }
-  broadcastState();
+  ensureItems(room);
+  broadcastState(room);
 }
 
-function broadcast(obj){
+// ---------- 广播 ----------
+function broadcast(room,obj){
   const data=JSON.stringify(obj);
-  for(const s of snakes.values()){
+  for(const s of room.snakes.values()){
     if(!s.ws)continue;
     try{s.ws.send(data)}catch(e){}
   }
 }
-
-function broadcastState(){
-  const sn=[],fadd=[],fdel=[];
+function effObj(s,now){
+  return {shield:Math.max(0,(s.effects.shield||0)-now),magnet:Math.max(0,(s.effects.magnet||0)-now),
+    boost:Math.max(0,(s.effects.boost||0)-now),stealth:Math.max(0,(s.effects.stealth||0)-now)};
+}
+function broadcastState(room){
+  const now=Date.now();
+  const sn=[],fadd=[],fdel=[],iadd=[],idel=[];
   let online=0;
-  for(const s of snakes.values()){
+  for(const s of room.snakes.values()){
     if(!s.alive)continue;
     if(s.ws)online++;
     sn.push({id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
       len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
+      prot:now<s.protectUntil,fx:effObj(s,now),
       points:s.points.map(p=>[p.x|0,p.y|0])});
   }
-  // 食物增量：与上次快照对比
-  const cur=[...foods.keys()];
-  const prev=global.__prevFoods||new Set();
-  for(const id of cur)if(!prev.has(id))fadd.push(foods.get(id));
-  for(const id of prev)if(!foods.has(id))fdel.push(id);
-  global.__prevFoods=new Set(cur);
-  const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score);
+  const cur=[...room.foods.keys()];
+  for(const id of cur)if(!room.prevFoods.has(id))fadd.push(room.foods.get(id));
+  for(const id of room.prevFoods)if(!room.foods.has(id))fdel.push(id);
+  room.prevFoods=new Set(cur);
+  const ics=[...room.items.keys()];
+  for(const id of ics)if(!room.prevItems.has(id))iadd.push(room.items.get(id));
+  for(const id of room.prevItems)if(!room.items.has(id))idel.push(id);
+  room.prevItems=new Set(ics);
+  const sorted=[...room.snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score);
   const rank=sorted.map((s,i)=>({n:i+1,id:s.id,name:s.name,len:Math.round(s.targetLen),score:s.score}));
-  // 吃食物事件（动画用）
   const eats=[];
-  for(const s of snakes.values()){
+  for(const s of room.snakes.values()){
     if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
   }
-  broadcast({type:'state',snakes:sn,fadd,fdel,rank,eats,online});
+  broadcast(room,{type:'state',snakes:sn,fadd,fdel,rank,eats,online,iadd,idel});
 }
 
-function sendInit(ws,s){
-  const allSnakes=[...snakes.values()].filter(x=>x.alive).map(x=>({id:x.id,name:x.name,color:x.color,skin:x.skin,
+function sendInit(ws,room,s){
+  const now=Date.now();
+  const allSnakes=[...room.snakes.values()].filter(x=>x.alive).map(x=>({id:x.id,name:x.name,color:x.color,skin:x.skin,
     x:Math.round(x.x),y:Math.round(x.y),len:Math.round(x.targetLen),score:x.score,boost:x.boost,kills:x.kills||0,
+    prot:now<x.protectUntil,fx:effObj(x,now),
     points:x.points.map(p=>[p.x|0,p.y|0])}));
-  const allFoods=[...foods.values()];
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
-    snakes:allSnakes,foods:allFoods.map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big}))}));
+    room:room.code,
+    snakes:allSnakes,
+    foods:[...room.foods.values()].map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big})),
+    items:[...room.items.values()]}));
+  // 玩家加入后：增量广播应从当前快照之后开始（防重复）
+  room.prevFoods=new Set([...room.foods.keys()]);
+  room.prevItems=new Set([...room.items.keys()]);
 }
 
+// ---------- 连接 ----------
 wss.on('connection',ws=>{
   ws.isAlive=true;
   ws.on('pong',()=>ws.isAlive=true);
   ws.on('message',raw=>{
     let msg;try{msg=JSON.parse(raw)}catch(e){return}
     if(!msg||!msg.type)return;
-    if(msg.type==='join'){
-      if(ws.snake){snakes.delete(ws.snake.id)}
-      const s=createSnake(ws,String(msg.name||'').slice(0,12),String(msg.skin||''));
+    if(msg.type==='join'||msg.type==='respawn'){
+      const room=getRoom(msg.room||DEFAULT_CODE);
+      if(ws.snake&&ws.snake.room!==room){ws.snake.room.snakes.delete(ws.snake.id)}
+      const s=createSnake(room,ws,String(msg.name||'').slice(0,12),String(msg.skin||''));
+      s.room=room;
       ws.snake=s;
-      snakes.set(s.id,s);
-      sendInit(ws,s);
-    }else if(msg.type==='input'&&ws.snake&&ws.snake.alive){
+      room.snakes.set(s.id,s);
+      sendInit(ws,room,s);
+    }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
       ws.snake.angle=+msg.angle||0;
       ws.snake.boost=!!msg.boost;
     }else if(msg.type==='pause'&&ws.snake){
       ws.snake.paused=!!msg.paused;
-    }else if(msg.type==='respawn'){
-      const s=createSnake(ws,String(msg.name||'').slice(0,12),String(msg.skin||''));
-      ws.snake=s;
-      snakes.set(s.id,s);
-      sendInit(ws,s);
+    }else if(msg.type==='emote'&&ws.snake&&ws.snake.alive){
+      ws.snake.emote=String(msg.em||'').slice(0,4);
+      ws.snake.emoteUntil=Date.now()+2500;
+      const room=ws.snake.room;
+      broadcast(room,{type:'emote',id:ws.snake.id,em:ws.snake.emote});
     }
   });
-  ws.on('close',()=>{if(ws.snake)snakes.delete(ws.snake.id)});
+  ws.on('close',()=>{if(ws.snake&&ws.snake.room)ws.snake.room.snakes.delete(ws.snake.id)});
 });
 
 setInterval(tick,TICK_MS);
