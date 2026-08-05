@@ -270,6 +270,7 @@
   <div class="row"><span class="ic">📏</span><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
   <div class="row"><span class="ic">⭐</span><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
   <div class="row"><span class="ic">💀</span><span class="lbl">击杀</span><span class="val" id="myKills" style="color:var(--rose)">0</span></div>
+  <div class="row" id="roomRow" style="display:none"><span class="ic">🚪</span><span class="lbl">房间</span><span class="val" id="roomVal" style="color:var(--cyan);font-size:17px">-</span></div>
   <div class="row"><span class="ic">🏅</span><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
   <div class="row"><span class="ic">👥</span><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
   <div id="emotes">
@@ -469,6 +470,14 @@ function handle(msg){
     case 'init':
       state.selfId=msg.selfId;state.selfColor=msg.selfColor;
       state.roomCode=msg.room||'';
+      // 对战界面显示房间号（全球场不显示）
+      const rc=(msg.room||'').toUpperCase();
+      if(rc&&rc!=='GLOBAL'){
+        $('roomVal').textContent=rc;
+        $('roomRow').style.display='flex';
+      }else{
+        $('roomRow').style.display='none';
+      }
       state.snakes.clear();state.foods.clear();state.items.clear();state.corpses.clear();
       for(const s of msg.snakes)state.snakes.set(s.id,s);
       for(const f of msg.foods)state.foods.set(f.id,f);
