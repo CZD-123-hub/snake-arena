@@ -197,6 +197,42 @@
   #actionZone .act-btn span{font-size:10px;letter-spacing:.05em}
   #actionZone .act-btn:active{transform:scale(.92)}
   @media (hover:hover) and (pointer:fine){#joyZone,#actionZone{display:none!important}}
+  /* ===== 手机触屏：竖屏布局 ===== */
+  @media (orientation:portrait) and (pointer:coarse){
+    #joyZone{width:120px;height:120px;bottom:22px;left:22px}
+    #joyKnob{width:44px;height:44px}
+    #actionZone{bottom:30px;right:20px;gap:12px}
+    #actionZone .act-btn{width:72px;height:72px;font-size:20px}
+    #actionZone .act-btn span{font-size:9px}
+    #leaderboard{top:12px;right:12px;min-width:148px;max-width:164px;padding:8px 10px}
+    #leaderboard .lb-row{font-size:11px;padding:2.5px 0}
+    #leaderboard .lb-name{max-width:66px}
+    #minimap{top:196px;right:12px;bottom:auto;width:96px;height:96px}
+    #hud{top:12px;left:12px;padding:9px 12px;min-width:142px}
+    #hud .val{font-size:19px}
+    #hud .ic{width:19px;height:19px;font-size:11px}
+    #hud .lbl{font-size:9.5px}
+    #hud .quit{padding:4px 0;font-size:11px}
+    #emotes button{padding:4px 0;font-size:14px}
+  }
+  /* ===== 手机触屏：横屏布局 ===== */
+  @media (orientation:landscape) and (pointer:coarse){
+    #joyZone{width:104px;height:104px;bottom:16px;left:16px}
+    #joyKnob{width:40px;height:40px}
+    #actionZone{top:50%;right:12px;bottom:auto;transform:translateY(-50%);gap:10px}
+    #actionZone .act-btn{width:60px;height:60px;font-size:18px}
+    #actionZone .act-btn span{font-size:9px}
+    #leaderboard{top:12px;right:12px;min-width:150px;max-width:172px;padding:8px 10px}
+    #leaderboard .lb-row{font-size:11px;padding:2.5px 0}
+    #leaderboard .lb-name{max-width:74px}
+    #minimap{top:196px;right:12px;bottom:auto;width:88px;height:88px}
+    #hud{top:12px;left:12px;padding:9px 12px;min-width:138px}
+    #hud .val{font-size:18px}
+    #hud .ic{width:18px;height:18px;font-size:11px}
+    #hud .lbl{font-size:9.5px}
+    #hud .quit{padding:4px 0;font-size:11px}
+    #emotes button{padding:4px 0;font-size:13px}
+  }
   #killfeed{
     position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:12;display:flex;flex-direction:column;
     gap:4px;align-items:center;pointer-events:none;width:min(420px,92vw);
@@ -789,7 +825,8 @@ if(isTouchDevice()){
         const d=Math.hypot(dx,dy);
         if(d>max){dx=dx/d*max;dy=dy/d*max}
         joy.dx=dx;joy.dy=dy;
-        joyKnobEl.style.transform=`translate(${dx-23}px,${dy-23}px)`;
+        const hw=(joyKnobEl.offsetWidth||46)/2;
+        joyKnobEl.style.transform=`translate(${dx-hw}px,${dy-hw}px)`;
       }
     }
   },{passive:false});
@@ -797,7 +834,7 @@ if(isTouchDevice()){
     for(const t of e.changedTouches){
       if(t.identifier===joy.joyId){
         joy.joyId=-1;joy.active=false;joy.dx=0;joy.dy=0;
-        joyKnobEl.style.transform='translate(-23px,-23px)';
+        joyKnobEl.style.transform='translate(-50%,-50%)';
       }
     }
   };
@@ -1164,11 +1201,13 @@ function drawSnake(s,isMe,usePts){
 }
 
 function drawMinimap(){
+  const mw=mm.clientWidth||140,mh=mm.clientHeight||140;
+  if(mm.width!==mw||mm.height!==mh){mm.width=mw;mm.height=mh}
   const s=WORLD;
-  mmctx.fillStyle='#eef2f8';mmctx.fillRect(0,0,140,140);
+  mmctx.fillStyle='#eef2f8';mmctx.fillRect(0,0,mw,mh);
   mmctx.strokeStyle='rgba(225,29,72,.5)';mmctx.lineWidth=1;
-  mmctx.strokeRect(1,1,138,138);
-  const k=138/s;
+  mmctx.strokeRect(1,1,mw-2,mh-2);
+  const k=(mw-2)/s;
   mmctx.fillStyle='rgba(217,119,6,.7)';
   for(const f of state.foods.values()){mmctx.fillRect(f.x*k,f.y*k,1.5,1.5)}
   for(const it of state.items.values()){
@@ -1183,7 +1222,8 @@ function drawMinimap(){
 
 function renderLeaderboard(){
   const body=$('lbBody');
-  body.innerHTML=state.rank.slice(0,10).map(r=>{
+  const limit=isTouchDevice()?8:10;
+  body.innerHTML=state.rank.slice(0,limit).map(r=>{
     const me=r.id===state.selfId?' lb-me':'';
     const cls=r.n<=3?'top':'';
     const isAI=r.name.startsWith('AI·');
