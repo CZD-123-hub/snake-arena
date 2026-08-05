@@ -660,7 +660,7 @@ function renderLeaderboard(){
     const me=r.id===state.selfId?' lb-me':'';
     const cls=r.n<=3?'top':'';
     const isAI=r.name.startsWith('AI·');
-    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${r.score||0}分</span></div>`;
+    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${Math.floor(r.score||0)}分</span></div>`;
   }).join('');
 }
 
