@@ -335,7 +335,7 @@ function tickRoom(room){
       if(now<t.protectUntil)continue;             // 对方保护中：不能吃它
       if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
       if(t.effects.stealth&&now<t.effects.stealth)continue;
-      const hitR=Math.min(34,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.35);
+      const hitR=Math.min(42,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.5);
       for(let i=0;i<t.points.length;i+=2){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;

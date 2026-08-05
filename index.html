@@ -1129,7 +1129,7 @@ function drawSnake(s,isMe,usePts){
   let body=s.color;
   let pat='stripe';
   if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
-  const r=Math.min(13,2.5+Math.sqrt(s.score||0)*0.55);
+  const r=Math.min(16,2.5+Math.sqrt(s.score||0)*0.8);
   ctx.lineCap='round';ctx.lineJoin='round';
   const now=Date.now();
   // 新手保护：半透明闪烁
