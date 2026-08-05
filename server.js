@@ -141,31 +141,23 @@ function createSnake(room,ws,name,skin){
 
 function headOf(s){return s.points[0]}
 
-// ---------- 冲刺断尾（Dash） ----------
+// ---------- 冲刺（Dash） ----------
 const DASH_COOLDOWN=3500;
 function doDash(room,s){
   const now=Date.now();
   if(now-(s.lastDash||0)<DASH_COOLDOWN)return;
   s.lastDash=now;
-  // 断尾：把尾巴 25% 的点变成食物（经验球）
-  const cut=Math.max(2,Math.floor(s.points.length*0.25));
-  const newFoods=[];
-  for(let i=s.points.length-cut;i<s.points.length;i+=2){
-    const p=s.points[i];
-    const id='f'+(room.nextId++);
-    room.foods.set(id,{id,x:p.x,y:p.y,big:false});
-    newFoods.push(id);
+  // 整体瞬移：整条蛇沿当前方向平移 DASH_DIST，不拉伸不断尾
+  const dx=Math.cos(s.angle)*110,dy=Math.sin(s.angle)*110;
+  let ok=true;
+  for(const p of s.points){
+    if(p.x+dx<BODY_R||p.x+dx>WORLD-BODY_R||p.y+dy<BODY_R||p.y+dy>WORLD-BODY_R){ok=false;break}
   }
-  // 突进：沿当前方向猛冲一段距离
-  const h=headOf(s);
-  const nx=h.x+Math.cos(s.angle)*110, ny=h.y+Math.sin(s.angle)*110;
-  if(nx>BODY_R&&nx<WORLD-BODY_R&&ny>BODY_R&&ny<WORLD-BODY_R){
-    s.x=nx;s.y=ny;
-    s.points.unshift({x:nx,y:ny});
-    const keep=Math.floor(s.targetLen*0.5)+10;
-    while(s.points.length>keep)s.points.pop();
+  if(ok){
+    for(const p of s.points){p.x+=dx;p.y+=dy}
+    s.x+=dx;s.y+=dy;
   }
-  broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods});
+  broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y)});
 }
 
 // ---------- AI ----------

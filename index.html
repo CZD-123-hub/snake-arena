@@ -292,10 +292,10 @@
 <div id="streak"></div>
 <div id="killfeed"></div>
 
-<!-- 手机端操作按钮：加速在下方（拇指最顺手），冲刺在上 -->
+<!-- 手机端操作按钮：加速在上方（最常用），冲刺在下方 -->
 <div id="actionZone">
-  <button id="dashBtn" class="act-btn">⚡<span>冲刺</span></button>
   <button id="boostBtn" class="act-btn boost">🚀<span>加速</span></button>
+  <button id="dashBtn" class="act-btn">⚡<span>冲刺</span></button>
 </div>
 
 <div class="panel" id="death">
@@ -546,8 +546,7 @@ function handle(msg){
       if(msg.id===state.selfId)SFX.kill();
       break;
     case 'dash':
-      if(msg.id===state.selfId)SFX.pickup();
-      if(msg.foods)for(const fid of msg.foods){const f=state.foods.get(fid);if(f)explode(f.x,f.y,'#fbbf24',4)}
+      if(msg.id===state.selfId){SFX.pickup();dashTrail(msg.x,msg.y,state.selfAngle)}
       break;
     case 'emote':
       if(msg.id!==state.selfId){
@@ -1058,6 +1057,15 @@ function drawParticles(){
     ctx.beginPath();ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2);ctx.fill();
   }
   ctx.globalAlpha=1;
+}
+// 冲刺残影：沿冲刺方向撒一条光带
+function dashTrail(x,y,angle){
+  for(let i=0;i<16;i++){
+    const back=i*7;
+    const px=x-Math.cos(angle)*back,py=y-Math.sin(angle)*back;
+    particles.push({x:px,y:py,vx:(Math.random()-0.5)*1.5,vy:(Math.random()-0.5)*1.5,
+      life:0.7-i*0.03,decay:0.05,color:'#22d3ee',r:3+Math.random()*2});
+  }
 }
 
 function drawSnake(s,isMe,usePts){
