@@ -1045,21 +1045,25 @@ function localPredict(){
     }
     if(done)me._corr=null;
   }
-  for(const [id,f] of state.foods){
-    const dx=c-f.x,dy=cy-f.y;
-    const eatR=f.big?18:13;
-    if(dx*dx+dy*dy<eatR*eatR){
-      state.foods.delete(id);
-      explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
-      if(f.big)SFX.bigEat();else SFX.eat();
+  // 乐观吃球/拾取：每 2 帧检查一次（30fps 足够，33ms 乐观延迟远小于网络延迟，省一半遍历开销）
+  state._eatTick=(state._eatTick||0)+1;
+  if(state._eatTick%2===0){
+    for(const [id,f] of state.foods){
+      const dx=c-f.x,dy=cy-f.y;
+      const eatR=f.big?18:13;
+      if(dx*dx+dy*dy<eatR*eatR){
+        state.foods.delete(id);
+        explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
+        if(f.big)SFX.bigEat();else SFX.eat();
+      }
     }
-  }
-  // 乐观拾取道具：本地立即删+特效，服务端稍后确认
-  for(const [id,it] of state.items){
-    const dx=c-it.x,dy=cy-it.y;
-    if(dx*dx+dy*dy<16*16){
-      state.items.delete(id);
-      explode(it.x,it.y,ITEM_META[it.kind]?.color||'#94a3b8',10);
+    // 乐观拾取道具：本地立即删+特效，服务端稍后确认
+    for(const [id,it] of state.items){
+      const dx=c-it.x,dy=cy-it.y;
+      if(dx*dx+dy*dy<16*16){
+        state.items.delete(id);
+        explode(it.x,it.y,ITEM_META[it.kind]?.color||'#94a3b8',10);
+      }
     }
   }
 }
@@ -1360,6 +1364,10 @@ function drawSnake(s,isMe,usePts){
 }
 
 function drawMinimap(){
+  // 节流：10fps 重绘（每帧 650 fillRect → 每 100ms，canvas 操作降 ~83%）
+  const mt=performance.now();
+  if(mt-(state._mmT||0)<100)return;
+  state._mmT=mt;
   const mw=mm.clientWidth||140,mh=mm.clientHeight||140;
   if(mm.width!==mw||mm.height!==mh){mm.width=mw;mm.height=mh}
   const s=WORLD;
