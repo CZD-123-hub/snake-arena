@@ -199,20 +199,46 @@ function thinkAI(room,s){
   else if(h.x>WORLD-MARGIN)wallTarget=Math.PI;
   else if(h.y<MARGIN)wallTarget=Math.PI/2;
   else if(h.y>WORLD-MARGIN)wallTarget=-Math.PI/2;
+  // 危险检测：只怕比自己分高的蛇头逼近（小蛇接近不逃，AI 会主动猎杀）
   let danger=null,dangerDist=240;
   for(const t of room.snakes.values()){
     if(!t.alive||t.id===s.id)continue;
+    if(t.score<s.score)continue;
     const th=headOf(t);
     const d=Math.hypot(th.x-h.x,th.y-h.y);
     if(d<dangerDist){danger={x:th.x,y:th.y};dangerDist=d}
+  }
+  // 追猎：找比自己分低且较近的蛇（AI 主动攻击）
+  let prey=null,preyDist=420;
+  for(const t of room.snakes.values()){
+    if(!t.alive||t.id===s.id)continue;
+    if(t.score>=s.score)continue;
+    const th=headOf(t);
+    const d=Math.hypot(th.x-h.x,th.y-h.y);
+    if(d<preyDist){prey={x:th.x,y:th.y,ang:t.angle};preyDist=d}
+  }
+  // 尸体：最近的未吃尸体（AI 会扑食）
+  let corpse=null,cpDist=500;
+  for(const cp of room.corpses.values()){
+    if(cp.eaten||!cp.points.length)continue;
+    const p=cp.points[0];
+    const d=Math.hypot(p[0]-h.x,p[1]-h.y);
+    if(d<cpDist){corpse={x:p[0],y:p[1]};cpDist=d}
   }
   let target=null;
   if(wallTarget!=null){
     target=wallTarget;
   }else if(danger&&dangerDist<170){
+    // 逃离：垂直于威胁方向
     const a=Math.atan2(h.y-danger.y,h.x-danger.x);
     target=a+(Math.random()<0.5?Math.PI/2:-Math.PI/2);
+  }else if(prey&&preyDist<320){
+    // 追猎带拦截角：瞄准猎物头前方 60px（预判走位）
+    target=Math.atan2(prey.y+Math.sin(prey.ang)*60-h.y,prey.x+Math.cos(prey.ang)*60-h.x);
+  }else if(corpse&&cpDist<420){
+    target=Math.atan2(corpse.y-h.y,corpse.x-h.x);
   }else{
+    // 寻食：找最近食物
     let best=null,bd=1e18;
     for(const f of room.foods.values()){
       const dx=f.x-h.x,dy=f.y-h.y;
@@ -227,7 +253,8 @@ function thinkAI(room,s){
     s.angle+=d*0.09;
     s.angle+=(rnd(1)-0.5)*0.035;
   }
-  s.boost=!!(danger&&dangerDist<200);
+  // 加速：危险近身或追猎近距时 boost
+  s.boost=!!(danger&&dangerDist<200)||!!(prey&&preyDist<220);
 }
 
 // ---------- 移动/进食 ----------
@@ -310,6 +337,22 @@ function currentRank(room,id){
 }
 
 // ---------- 主循环 ----------
+// ---------- 空间索引 ----------
+const CELL=100; // 网格大小（px）；hitR 上限 42 < CELL，3×3 查询不漏判
+function buildGrid(room){
+  const grid=new Map();
+  for(const t of room.snakes.values()){
+    if(!t.alive)continue;
+    for(const p of t.points){
+      const k=((p.x/CELL)|0)+','+((p.y/CELL)|0);
+      let arr=grid.get(k);
+      if(!arr){arr=[];grid.set(k,arr)}
+      arr.push([t,p]);
+    }
+  }
+  return grid;
+}
+
 function tick(){
   for(const room of rooms.values()){
     tickRoom(room);
@@ -332,40 +375,50 @@ function tickRoom(room){
   }
   // 碰撞：新手保护/护盾/隐身期间免碰撞；大鱼吃小鱼
   // 注意：暂停的蛇不动但【仍可被吃】（防暂停无敌漏洞）
+  // 网格空间索引：100px 格子，蛇身点注册，蛇头只查周围 3×3 格（hitR 上限 42 < CELL，等价不漏判）
+  const grid=buildGrid(room);
   for(const s of room.snakes.values()){
     if(!s.alive)continue;
     const h=headOf(s);
-    for(const t of room.snakes.values()){
-      if(!t.alive||t.id===s.id)continue;
-      if(now<t.protectUntil)continue;             // 对方保护中：不能吃它
-      if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
-      if(t.effects.stealth&&now<t.effects.stealth)continue;
-      const hitR=Math.min(42,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.5);
-      for(let i=0;i<t.points.length;i+=2){
-        const p=t.points[i];
-        const dx=h.x-p.x,dy=h.y-p.y;
-        if(dx*dx+dy*dy<hitR*hitR){
-          if(s.score>t.score){
-            t.eatenBy=s.name;
-            const now2=Date.now();
-            if(now2-(s.lastKillAt||0)<5000)s.killStreak=(s.killStreak||0)+1;
-            else s.killStreak=1;
-            s.lastKillAt=now2;
-            const mult=s.killStreak>=2?1.5:1;
-            const gained=Math.max(1,Math.floor(t.score*mult));
-            s.score+=gained;
-            s.kills=(s.kills||0)+1;
-            kill(room,t,'eaten:'+s.name);
-            broadcast(room,{type:'eat',killer:s.id,target:t.id,killerName:s.name,targetName:t.name,x:Math.round(p.x),y:Math.round(p.y),gained});
-            if(s.killStreak>=2)broadcast(room,{type:'killstreak',killer:s.id,count:s.killStreak});
-          }else if(t.score>s.score){
-            // 自己保护中或隐身：免疫被杀（但对方保护中已在上方排除）
-            if(!(now<s.protectUntil)&&!(s.effects.stealth&&now<s.effects.stealth)){
-              kill(room,s,'hit:'+t.name+'@'+i);
+    const cx=(h.x/CELL)|0,cy=(h.y/CELL)|0;
+    const done=new Set(); // 蛇级条件已通过，多点复用跳过重复条件判断
+    for(let gx=cx-1;gx<=cx+1;gx++){
+      for(let gy=cy-1;gy<=cy+1;gy++){
+        const arr=grid.get(gx+','+gy);
+        if(!arr)continue;
+        for(const item of arr){
+          const t=item[0],p=item[1];
+          if(t.id===s.id||!t.alive||done.has(t.id))continue;
+          if(now<t.protectUntil)continue;             // 对方保护中：不能吃它
+          if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
+          if(t.effects.stealth&&now<t.effects.stealth)continue;
+          done.add(t.id);
+          const hitR=Math.min(42,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.5);
+          const dx=h.x-p.x,dy=h.y-p.y;
+          if(dx*dx+dy*dy<hitR*hitR){
+            if(s.score>t.score){
+              t.eatenBy=s.name;
+              const now2=Date.now();
+              if(now2-(s.lastKillAt||0)<5000)s.killStreak=(s.killStreak||0)+1;
+              else s.killStreak=1;
+              s.lastKillAt=now2;
+              const mult=s.killStreak>=2?1.5:1;
+              const gained=Math.max(1,Math.floor(t.score*mult));
+              s.score+=gained;
+              s.kills=(s.kills||0)+1;
+              kill(room,t,'eaten:'+s.name);
+              broadcast(room,{type:'eat',killer:s.id,target:t.id,killerName:s.name,targetName:t.name,x:Math.round(p.x),y:Math.round(p.y),gained});
+              if(s.killStreak>=2)broadcast(room,{type:'killstreak',killer:s.id,count:s.killStreak});
+            }else if(t.score>s.score){
+              // 自己保护中或隐身：免疫被杀（但对方保护中已在上方排除）
+              if(!(now<s.protectUntil)&&!(s.effects.stealth&&now<s.effects.stealth)){
+                kill(room,s,'hit:'+t.name);
+              }
             }
+            break;
           }
-          break;
         }
+        if(!s.alive)break;
       }
       if(!s.alive)break;
     }
