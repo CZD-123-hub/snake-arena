@@ -2,8 +2,6 @@ node_modules/
 .edgeone/
 *.zip
 *.tar.gz
-wstest.js
-check.js
 pack.js
 _env/
 _dep/
