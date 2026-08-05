@@ -373,8 +373,17 @@ const state={
   mouse:{x:W/2,y:H/2},touch:null,
   rank:[],pendingJoin:false,paused:false,
   shake:0,shakeUntil:0,redUntil:0,
-  emote:null,roomCode:'',sessionToken:''
+  emote:null,roomCode:'',sessionToken:'',
+  quality:2 // 画质档位：2=高 1=中 0=低（帧时间自适应）
 };
+// 性能 HUD：URL 带 ?perf=1 时显示帧时间/FPS（真机验证流畅度用）
+if(location.search.indexOf('perf=1')>=0){
+  state._perf=true;
+  const pel=document.createElement('div');
+  pel.id='perfHud';
+  pel.style.cssText='position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:99;background:rgba(0,0,0,.65);color:#4ade80;font:11px monospace;padding:2px 10px;border-radius:8px;pointer-events:none;white-space:nowrap';
+  document.body.appendChild(pel);
+}
 
 const $=id=>document.getElementById(id);
 
@@ -1072,12 +1081,20 @@ function localPredict(){
   }
 }
 
-// 移动端关闭 shadowBlur（性能大杀器），桌面保留
-const SHADOW=isTouchDevice()?0:1;
+// 全局关闭 shadowBlur（canvas 每像素模糊 = 帧时间最大杀手，光效改用双层圆伪光晕替代）
+// 保留 SHADOW 变量便于将来按设备/画质档位恢复
+const SHADOW=0;
+// 世界边框渐变：端点固定（世界坐标），模块级缓存一次，消除每帧重建
+const WALL_GRAD=(()=>{
+  const g=ctx.createLinearGradient(20,20,WORLD-20,WORLD-20);
+  g.addColorStop(0,'rgba(225,29,72,.7)');
+  g.addColorStop(.5,'rgba(217,119,6,.7)');
+  g.addColorStop(1,'rgba(8,145,178,.7)');
+  return g;
+})();
 function draw(){
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#eef2f8';
-  ctx.fillRect(0,0,W,H);
+  // 帧时间监控（自适应降级 + 性能 HUD）
+  const _ft0=performance.now();
   localPredict();
   // 摄像机：正常跟随自己；观战时跟随第一名
   const me=state.snakes.get(state.selfId);
@@ -1116,14 +1133,8 @@ function draw(){
   }
   ctx.stroke();
 
-  const wallGrad=ctx.createLinearGradient(20,20,WORLD-20,WORLD-20);
-  wallGrad.addColorStop(0,'rgba(225,29,72,.7)');
-  wallGrad.addColorStop(.5,'rgba(217,119,6,.7)');
-  wallGrad.addColorStop(1,'rgba(8,145,178,.7)');
-  ctx.strokeStyle=wallGrad;ctx.lineWidth=5;
-  ctx.shadowColor='rgba(225,29,72,.35)';ctx.shadowBlur=18*SHADOW;
+  ctx.strokeStyle=WALL_GRAD;ctx.lineWidth=5;
   ctx.strokeRect(18,18,WORLD-36,WORLD-36);
-  ctx.shadowBlur=0;
 
   // 中心富食区提示（淡淡光圈）
   const centerR=WORLD*0.28;
@@ -1135,16 +1146,17 @@ function draw(){
   ctx.fillStyle='rgba(217,119,6,.3)';ctx.font='13px system-ui';ctx.textAlign='center';
   ctx.fillText('富食区 · 食物最密集',WORLD/2,WORLD/2);
 
-  // 道具
+  // 道具（双层圆伪光晕：外层低透明度 + 内层实色，替代 shadowBlur 保留光感）
   const vs=state.scale||1;
   for(const it of state.items.values()){
     if(it.x<state.camX-W/2/vs-40||it.x>state.camX+W/2/vs+40||it.y<state.camY-H/2/vs-40||it.y>state.camY+H/2/vs+40)continue;
     const meta=ITEM_META[it.kind]||{e:'?',color:'#94a3b8'};
     const pulse=1+Math.sin(Date.now()/260+it.x)*0.12;
     ctx.fillStyle=meta.color;
-    ctx.shadowColor=meta.color;ctx.shadowBlur=16*SHADOW;
+    ctx.globalAlpha=0.18;
+    ctx.beginPath();ctx.arc(it.x,it.y,20*pulse,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
     ctx.beginPath();ctx.arc(it.x,it.y,13*pulse,0,Math.PI*2);ctx.fill();
-    ctx.shadowBlur=0;
     ctx.fillStyle='#fff';
     ctx.font='14px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(meta.e,it.x,it.y+1);
@@ -1157,9 +1169,10 @@ function draw(){
     if(f.big){
       const pulse=1+Math.sin(Date.now()/300+f.x)*0.15;
       ctx.fillStyle='#f59e0b';
-      ctx.shadowColor='#fbbf24';ctx.shadowBlur=12*SHADOW;
+      ctx.globalAlpha=0.2;
+      ctx.beginPath();ctx.arc(f.x,f.y,12*pulse,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
       ctx.beginPath();ctx.arc(f.x,f.y,7*pulse,0,Math.PI*2);ctx.fill();
-      ctx.shadowBlur=0;
     }else{
       ctx.fillStyle='#d97706';
       ctx.beginPath();ctx.arc(f.x,f.y,3.2,0,Math.PI*2);ctx.fill();
@@ -1194,16 +1207,22 @@ function draw(){
       if(isMe&&!inDashBuf){
         // 自己（非冲刺缓冲期）：直接用本地预测点（逐帧平滑推进）
         drawSnake(s,true,s.points);
-      }else if(s.prev&&s.prev.points&&s.prev.points.length>1&&s._pt&&s._prevT){
+      }else if(s.prev&&s.prev.points&&s.prev.points.length>1&&s._pt&&s._prevT&&(state.quality||2)>=1){
         // 其他蛇 / 冲刺缓冲期的自己：按时间在两包之间插值（固定延迟缓冲，匀速平滑）
+        // 插值缓冲复用（_ipts 预分配）：消除每帧 new Array + 内层数组的 GC 压力
         const span=Math.max(20,s._pt-s._prevT);
         const f=Math.min(1,Math.max(0,(nowT-RENDER_DELAY-s._prevT)/span));
         const pc=s.prev.points,cc=s.points;
         const n=Math.min(pc.length,cc.length);
-        const pts=new Array(cc.length);
+        if(!s._ipts||s._ipts.length!==cc.length){
+          s._ipts=new Array(cc.length);
+          for(let i=0;i<cc.length;i++)s._ipts[i]=[0,0];
+        }
+        const pts=s._ipts;
         for(let i=0;i<cc.length;i++){
           const q=pc[Math.min(i,n-1)]||cc[i];
-          pts[i]=[q[0]+(cc[i][0]-q[0])*f,q[1]+(cc[i][1]-q[1])*f];
+          pts[i][0]=q[0]+(cc[i][0]-q[0])*f;
+          pts[i][1]=q[1]+(cc[i][1]-q[1])*f;
         }
         drawSnake(s,isMe,pts);
       }else{
@@ -1228,6 +1247,28 @@ function draw(){
 
   renderBuffs();
   drawMinimap();
+  // 帧时间监控：120 帧滑动窗口，avg>19ms 自动降一档画质（防长玩波动），<12ms 恢复
+  const _ft=performance.now()-_ft0;
+  state._ft=(state._ft||0)+_ft;
+  state._ftN=(state._ftN||0)+1;
+  if(state._ftN>=120){
+    const avg=state._ft/state._ftN;
+    state._ft=0;state._ftN=0;
+    const q=state.quality==null?2:state.quality;
+    if(avg>19)state.quality=Math.max(0,q-1);
+    else if(avg<12)state.quality=Math.min(2,q+1);
+  }
+  // 性能 HUD（?perf=1 开启）：帧时间/FPS/画质档位，用于真机验证流畅度
+  if(state._perf){
+    state._pft=(state._pft||0)+_ft;
+    state._pN=(state._pN||0)+1;
+    if(state._pft>500){
+      const avg=state._pft/state._pN;
+      state._pft=0;state._pN=0;
+      const el=document.getElementById('perfHud');
+      if(el)el.textContent='帧 '+(1000/avg).toFixed(0)+'fps · '+avg.toFixed(1)+'ms · 画质Q'+(state.quality==null?2:state.quality);
+    }
+  }
   requestAnimationFrame(draw);
 }
 
@@ -1245,7 +1286,12 @@ function drawParticles(){
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];
     p.x+=p.vx;p.y+=p.vy;p.vx*=0.96;p.vy*=0.96;p.life-=p.decay;
-    if(p.life<=0){particles.splice(i,1);continue}
+    if(p.life<=0){
+      // swap-pop 删除（O(1)，无数组元素移动）
+      const last=particles.pop();
+      if(i<particles.length)particles[i]=last;
+      continue;
+    }
     ctx.globalAlpha=Math.max(0,p.life);
     ctx.fillStyle=p.color;
     ctx.beginPath();ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2);ctx.fill();
@@ -1294,12 +1340,16 @@ function drawSnake(s,isMe,usePts){
   }
   // 隐身：更透明
   if(s.fx&&s.fx.stealth>0)ctx.globalAlpha=alpha*0.35;
-  if(s.boost){
-    ctx.shadowColor=body;ctx.shadowBlur=14*SHADOW;
+  // 加速：亮度表达（shadowBlur 已全局关闭，改 lighten 不增加光栅化开销）
+  if(s.boost)body=lighten(body,0.25);
+  // 蛇身渐变：缓存 200ms 复用（蛇身颜色过渡缓慢，端点随移动轻微滞后视觉无感；消除每帧渐变对象分配）
+  let grad=s._grad;
+  if(!grad||now-s._gradAt>200){
+    grad=ctx.createLinearGradient(h[0],h[1],pts[pts.length-1][0],pts[pts.length-1][1]);
+    grad.addColorStop(0,lighten(body,isMe?0.25:0));
+    grad.addColorStop(1,darken(body,0.5));
+    s._grad=grad;s._gradAt=now;
   }
-  const grad=ctx.createLinearGradient(h[0],h[1],pts[pts.length-1][0],pts[pts.length-1][1]);
-  grad.addColorStop(0,lighten(body,isMe?0.25:0));
-  grad.addColorStop(1,darken(body,0.5));
   ctx.strokeStyle=isMe?body:grad;
   ctx.lineWidth=r*2;
   ctx.beginPath();
@@ -1308,7 +1358,6 @@ function drawSnake(s,isMe,usePts){
     ctx.lineTo(pts[i][0],pts[i][1]);
   }
   ctx.stroke();
-  ctx.shadowBlur=0;
   // 护盾光环
   if(s.fx&&s.fx.shield>0){
     ctx.strokeStyle='rgba(8,145,178,.8)';ctx.lineWidth=2.5;
