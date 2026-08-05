@@ -478,7 +478,8 @@ function handle(msg){
         if(s.id===state.selfId&&old&&old.points&&old.points.length>1){
           const h=old.points[0],sh=s.points[0];
           if(sh&&Math.hypot(h[0]-sh[0],h[1]-sh[1])>90){
-            old.points=s.points;
+            // 校正：服务端采样点膨胀回本地密度（×3），保持视觉长度连续不跳变
+            old.points=densify(s.points);
             old.x=s.x;old.y=s.y;
           }
           old.len=s.len;old.score=s.score;old.boost=s.boost;old.name=s.name;old.color=s.color;
@@ -512,6 +513,7 @@ function handle(msg){
       if(selfSnake&&selfSnake.score!=null)$('myScore').textContent=Math.floor(selfSnake.score);
       if(selfSnake&&selfSnake.kills!=null)$('myKills').textContent=selfSnake.kills;
       if(msg.eats)for(const e of msg.eats){
+        if(e.id===state.selfId)continue; // 自己蛇已本地乐观吃球，跳过重复动画
         for(const f of e.f)if(f.x!=null)explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
       }
       break;
@@ -864,6 +866,19 @@ const mm=document.getElementById('mm');
 const mmctx=mm.getContext('2d');
 mm.width=140;mm.height=140;
 
+// 服务端采样点加密：每段中间插 2 个点，匹配本地预测密度（×3），防校正跳变
+function densify(pts){
+  if(!pts||pts.length<2)return pts;
+  const out=[pts[0].slice()];
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1],b=pts[i];
+    for(let k=1;k<=3;k++){
+      out.push([a[0]+(b[0]-a[0])*k/3,a[1]+(b[1]-a[1])*k/3]);
+    }
+  }
+  return out;
+}
+
 let lastFrameT=performance.now();
 function localPredict(){
   const me=state.snakes.get(state.selfId);
@@ -889,6 +904,14 @@ function localPredict(){
       state.foods.delete(id);
       explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
       SFX.eat();
+    }
+  }
+  // 乐观拾取道具：本地立即删+特效，服务端稍后确认
+  for(const [id,it] of state.items){
+    const dx=c-it.x,dy=cy-it.y;
+    if(dx*dx+dy*dy<16*16){
+      state.items.delete(id);
+      explode(it.x,it.y,ITEM_META[it.kind]?.color||'#94a3b8',10);
     }
   }
 }
@@ -1003,20 +1026,22 @@ function draw(){
     ctx.globalAlpha=1;
   }
 
-  // 蛇
+  // 蛇：自己用本地预测即时渲染；其他蛇用平滑追赶（消除瞬移/卡顿）
   const nowT=performance.now();
   for(const s of state.snakes.values()){
     if(state.spectate&&s.id===state.selfId)continue;
     const isMe=s.id===state.selfId;
-    if(!isMe&&s.prev&&s.prev.points&&s.prev.points.length>1){
-      const f=Math.min(1,(nowT-(state.lastStateAt||0))/50);
-      const pc=s.prev.points,cc=s.points;
-      const n=Math.min(pc.length,cc.length);
-      const pts=cc.map((p,i)=>{
-        const q=pc[Math.min(i,n-1)]||p;
-        return [q[0]+(p[0]-q[0])*f,q[1]+(p[1]-q[1])*f];
-      });
-      drawSnake(s,false,pts);
+    if(!isMe&&s.points&&s.points.length>1){
+      // 平滑追赶：渲染点每帧向服务端目标点移动一段比例，网络抖动也丝滑
+      if(!s._rp||s._rp.length!==s.points.length)s._rp=s.points.map(p=>[p[0],p[1]]);
+      else{
+        const l=Math.min(s._rp.length,s.points.length);
+        for(let i=0;i<l;i++){
+          s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*0.22;
+          s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*0.22;
+        }
+      }
+      drawSnake(s,false,s._rp);
     }else{
       drawSnake(s,isMe);
     }
@@ -1041,7 +1066,9 @@ function draw(){
 
 // ---------- 粒子系统 ----------
 const particles=[];
+const PARTICLE_MAX=180;
 function explode(x,y,color,n){
+  if(particles.length>PARTICLE_MAX)return;
   for(let i=0;i<n;i++){
     const a=Math.random()*Math.PI*2,sp=1+Math.random()*3.5;
     particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,decay:0.03+Math.random()*0.03,color,r:2+Math.random()*3.5});
