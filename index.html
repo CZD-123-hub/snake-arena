@@ -177,10 +177,10 @@
   #buffsFx .bff{background:rgba(5,150,105,.92);color:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700;
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
-  /* 手机端操作按钮：默认显示，仅鼠标设备（hover:hover）隐藏 */
-  #actionZone{display:flex;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
+  /* 手机端操作按钮：由 body.touch-device 类控制（JS 判断触摸设备，不依赖 CSS 设备查询） */
+  #actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
     bottom:34px;right:22px;flex-direction:column;gap:14px;align-items:flex-end}
-  @media (hover:hover) and (pointer:fine){#actionZone{display:none!important}}
+  body.touch-device #actionZone{display:flex}
   #actionZone .act-btn{
     width:78px;height:78px;border-radius:50%;border:none;cursor:pointer;font-family:inherit;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
@@ -318,6 +318,11 @@
 <script>
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
+// 触摸设备检测：有 ontouchstart 或移动端 UA → 加类显示操作按钮（横竖屏都可靠）
+(function(){
+  const touch=('ontouchstart'in window)||/Mobi|Android|iPhone|iPad|Windows Phone/i.test(navigator.userAgent);
+  if(touch)document.body.classList.add('touch-device');
+})();
 let W=0,H=0,DPR=1;
 function resize(){
   // 移动端用 1.5x 减少渲染像素量（性能），桌面保持 2x
@@ -478,9 +483,8 @@ function handle(msg){
         if(s.id===state.selfId&&old&&old.points&&old.points.length>1){
           const h=old.points[0],sh=s.points[0];
           if(sh&&Math.hypot(h[0]-sh[0],h[1]-sh[1])>90){
-            // 校正：服务端采样点膨胀回本地密度（×3），保持视觉长度连续不跳变
-            old.points=densify(s.points);
-            old.x=s.x;old.y=s.y;
+            // 校正：不瞬间替换，设平滑拉回目标（本地预测逐帧向服务端位置过渡）
+            old._corr=densify(s.points);
           }
           old.len=s.len;old.score=s.score;old.boost=s.boost;old.name=s.name;old.color=s.color;
           old.kills=s.kills;old.prot=s.prot;old.fx=s.fx;
@@ -904,6 +908,17 @@ function localPredict(){
   while(me.points.length>keep)me.points.pop();
   me.x=c;me.y=cy;
   me._predicted=true;
+  // 服务端校正平滑拉回：points 逐点向校正目标过渡，无跳变
+  if(me._corr&&me._corr.length>1){
+    const n=Math.min(me.points.length,me._corr.length);
+    let done=true;
+    for(let i=0;i<n;i++){
+      me.points[i][0]+=(me._corr[i][0]-me.points[i][0])*0.12;
+      me.points[i][1]+=(me._corr[i][1]-me.points[i][1])*0.12;
+      if(Math.abs(me._corr[i][0]-me.points[i][0])>2)done=false;
+    }
+    if(done)me._corr=null;
+  }
   for(const [id,f] of state.foods){
     const dx=c-f.x,dy=cy-f.y;
     const eatR=f.big?18:13;
@@ -1042,17 +1057,8 @@ function draw(){
     const isMe=s.id===state.selfId;
     if(s.points&&s.points.length>1){
       if(isMe){
-        // 自己：渲染点向本地预测点平滑追赶（0.4 快速跟随，操作跟手）
-        if(!s._rp||s._rp.length===0)s._rp=s.points.map(p=>[p[0],p[1]]);
-        else{
-          while(s._rp.length<s.points.length)s._rp.push([s.points[s._rp.length][0],s.points[s._rp.length][1]]);
-          while(s._rp.length>s.points.length)s._rp.pop();
-          for(let i=0;i<s.points.length;i++){
-            s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*0.4;
-            s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*0.4;
-          }
-        }
-        drawSnake(s,true,s._rp);
+        // 自己：直接用本地预测点（逐帧平滑推进，无缓冲冲突）
+        drawSnake(s,true,s.points);
       }else if(s.prev&&s.prev.points&&s.prev.points.length>1&&s._pt&&s._prevT){
         // 其他蛇：按时间在两包之间插值（固定延迟缓冲，网络抖动也匀速）
         const span=Math.max(20,s._pt-s._prevT);
