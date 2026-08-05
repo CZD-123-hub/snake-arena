@@ -1029,22 +1029,24 @@ function draw(){
     ctx.globalAlpha=1;
   }
 
-  // 蛇：自己用本地预测即时渲染；其他蛇用平滑追赶（消除瞬移/卡顿）
+  // 蛇：自己用本地预测渲染点（平滑缓冲防跳变）；其他蛇平滑追赶
+  // 统一用"补齐/截断 + lerp"：点数量变化时也平滑，头部永不跳变
   const nowT=performance.now();
   for(const s of state.snakes.values()){
     if(state.spectate&&s.id===state.selfId)continue;
     const isMe=s.id===state.selfId;
-    if(!isMe&&s.points&&s.points.length>1){
-      // 平滑追赶：渲染点每帧向服务端目标点移动一段比例，网络抖动也丝滑
-      if(!s._rp||s._rp.length!==s.points.length)s._rp=s.points.map(p=>[p[0],p[1]]);
+    if(s.points&&s.points.length>1){
+      if(!s._rp||s._rp.length===0)s._rp=s.points.map(p=>[p[0],p[1]]);
       else{
-        const l=Math.min(s._rp.length,s.points.length);
-        for(let i=0;i<l;i++){
-          s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*0.22;
-          s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*0.22;
+        while(s._rp.length<s.points.length)s._rp.push([s.points[s._rp.length][0],s.points[s._rp.length][1]]);
+        while(s._rp.length>s.points.length)s._rp.pop();
+        const k=isMe?0.4:0.22;
+        for(let i=0;i<s.points.length;i++){
+          s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*k;
+          s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*k;
         }
       }
-      drawSnake(s,false,s._rp);
+      drawSnake(s,isMe,s._rp);
     }else{
       drawSnake(s,isMe);
     }
