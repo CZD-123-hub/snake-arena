@@ -177,15 +177,10 @@
   #buffsFx .bff{background:rgba(5,150,105,.92);color:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700;
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
-  /* 手机端固定操作区 */
-  #joyZone,#actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none}
-  #joyZone{bottom:26px;left:26px;width:130px;height:130px;border-radius:50%;
-    background:rgba(255,255,255,.45);border:2px solid rgba(26,35,50,.18);
-    box-shadow:0 8px 24px -8px rgba(26,35,50,.25)}
-  #joyKnob{position:absolute;left:50%;top:50%;width:46px;height:46px;border-radius:50%;
-    background:rgba(5,150,105,.5);border:2px solid rgba(5,150,105,.8);
-    transform:translate(-50%,-50%)}
-  #actionZone{bottom:34px;right:22px;display:flex;flex-direction:column;gap:14px;align-items:flex-end}
+  /* 手机端操作按钮（由 body.touch-device 控制显示，横竖屏都可靠） */
+  #actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
+    bottom:34px;right:22px;flex-direction:column;gap:14px;align-items:flex-end}
+  body.touch-device #actionZone{display:flex}
   #actionZone .act-btn{
     width:78px;height:78px;border-radius:50%;border:none;cursor:pointer;font-family:inherit;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
@@ -196,11 +191,8 @@
   #actionZone .act-btn.boost{background:rgba(5,150,105,.8)}
   #actionZone .act-btn span{font-size:10px;letter-spacing:.05em}
   #actionZone .act-btn:active{transform:scale(.92)}
-  /* 显示/隐藏由 JS 按设备类型控制（不依赖 pointer 查询，防横屏失配） */
   /* ===== 手机触屏：竖屏布局 ===== */
   @media (orientation:portrait) and (pointer:coarse){
-    #joyZone{width:120px;height:120px;bottom:22px;left:22px}
-    #joyKnob{width:44px;height:44px}
     #actionZone{bottom:30px;right:20px;gap:12px}
     #actionZone .act-btn{width:72px;height:72px;font-size:20px}
     #actionZone .act-btn span{font-size:9px}
@@ -217,8 +209,6 @@
   }
   /* ===== 手机触屏：横屏布局 ===== */
   @media (orientation:landscape) and (pointer:coarse){
-    #joyZone{width:104px;height:104px;bottom:16px;left:16px}
-    #joyKnob{width:40px;height:40px}
     #actionZone{top:50%;right:12px;bottom:auto;transform:translateY(-50%);gap:10px}
     #actionZone .act-btn{width:60px;height:60px;font-size:18px}
     #actionZone .act-btn span{font-size:9px}
@@ -303,9 +293,6 @@
 <div id="killfeed"></div>
 
 <!-- 手机端固定操作区 -->
-<div id="joyZone">
-  <div id="joyBase"><div id="joyKnob"></div></div>
-</div>
 <div id="actionZone">
   <button id="dashBtn" class="act-btn">⚡<span>冲刺</span></button>
   <button id="boostBtn" class="act-btn boost">🚀<span>加速</span></button>
@@ -795,55 +782,12 @@ canvas.addEventListener('touchstart',e=>{
   lastTapT=now;
 });
 
-// 手机端：固定摇杆 + 加速/冲刺按钮（替代任意点摇杆）
+// 手机端：任意位置按住=摇杆方向；右下角独立加速/冲刺按钮
 const joy={active:false,cx:0,cy:0,dx:0,dy:0,joyId:-1,boostId:-1};
-const joyZoneEl=$('joyZone'),joyKnobEl=$('joyKnob');
 function isTouchDevice(){return /Mobi|Android|iPhone|iPad|Windows Phone/i.test(navigator.userAgent)||('ontouchstart'in window)}
-function applyMobileUI(){
-  const t=isTouchDevice();
-  joyZoneEl.style.display=t?'block':'none';
-  $('actionZone').style.display=t?'flex':'none';
-}
 if(isTouchDevice()){
-  applyMobileUI();
-  // 固定摇杆：按住拖动转向
-  joyZoneEl.addEventListener('touchstart',e=>{
-    e.preventDefault();
-    if(joy.joyId<0){
-      joy.joyId=e.changedTouches[0].identifier;
-      joy.active=true;
-      joy.cx=e.changedTouches[0].clientX;
-      joy.cy=e.changedTouches[0].clientY;
-      joy.dx=0;joy.dy=0;
-    }
-  },{passive:false});
-  joyZoneEl.addEventListener('touchmove',e=>{
-    e.preventDefault();
-    for(const t of e.changedTouches){
-      if(t.identifier===joy.joyId){
-        // 以摇杆中心为基准计算方向（固定摇杆：不跟随手指起始点）
-        const r=joyZoneEl.getBoundingClientRect();
-        const cx=r.left+r.width/2,cy=r.top+r.height/2;
-        let dx=t.clientX-cx,dy=t.clientY-cy;
-        const max=42;
-        const d=Math.hypot(dx,dy);
-        if(d>max){dx=dx/d*max;dy=dy/d*max}
-        joy.dx=dx;joy.dy=dy;
-        const hw=(joyKnobEl.offsetWidth||46)/2;
-        joyKnobEl.style.transform=`translate(${dx-hw}px,${dy-hw}px)`;
-      }
-    }
-  },{passive:false});
-  const joyZoneEnd=e=>{
-    for(const t of e.changedTouches){
-      if(t.identifier===joy.joyId){
-        joy.joyId=-1;joy.active=false;joy.dx=0;joy.dy=0;
-        joyKnobEl.style.transform='translate(-50%,-50%)';
-      }
-    }
-  };
-  joyZoneEl.addEventListener('touchend',joyZoneEnd,{passive:false});
-  joyZoneEl.addEventListener('touchcancel',joyZoneEnd,{passive:false});
+  // 显示按钮（body class 控制 CSS）
+  document.body.classList.add('touch-device');
   // 加速按钮：按住加速
   const boostBtnEl=$('boostBtn');
   boostBtnEl.addEventListener('touchstart',e=>{e.preventDefault();state.boosting=true},{passive:false});
@@ -852,12 +796,10 @@ if(isTouchDevice()){
   // 冲刺按钮
   $('dashBtn').addEventListener('touchstart',e=>{e.preventDefault();doDash()},{passive:false});
   $('dashBtn').addEventListener('click',()=>doDash());
-}else{
-  // 桌面/无固定控件的触摸设备：第一根手指=任意点摇杆，第二根手指=加速
 }
+// 任意点摇杆：第一根手指方向，第二根手指加速（手机+触摸屏通用）
 function joyStart(e){
   e.preventDefault();
-  if(isTouchDevice())return; // 固定控件已接管
   for(const t of e.changedTouches){
     if(joy.joyId<0){
       joy.joyId=t.identifier;joy.active=true;joy.cx=t.clientX;joy.cy=t.clientY;joy.dx=0;joy.dy=0;
@@ -868,7 +810,6 @@ function joyStart(e){
 }
 function joyMove(e){
   e.preventDefault();
-  if(isTouchDevice())return;
   for(const t of e.changedTouches){
     if(t.identifier===joy.joyId){joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;}
   }
