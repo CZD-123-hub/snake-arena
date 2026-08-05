@@ -748,7 +748,10 @@ function renderBuffs(){
     if((me.fx[k]||0)>0)active.push(k);
   }
   if(active.length===0){bar.innerHTML='';return}
-  bar.innerHTML=active.map(k=>`<span class="bf">${ITEM_META[k].e} ${ITEM_META[k].label}</span>`).join('');
+  bar.innerHTML=active.map(k=>{
+    const sec=Math.ceil((me.fx[k]||0)/1000);
+    return `<span class="bf">${ITEM_META[k].e} ${ITEM_META[k].label} ${sec}s</span>`;
+  }).join('');
 }
 
 // ---------- 输入 ----------
@@ -903,7 +906,7 @@ function localPredict(){
     if(dx*dx+dy*dy<eatR*eatR){
       state.foods.delete(id);
       explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
-      SFX.eat();
+      if(f.big)SFX.bigEat();else SFX.eat();
     }
   }
   // 乐观拾取道具：本地立即删+特效，服务端稍后确认

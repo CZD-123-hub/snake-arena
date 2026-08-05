@@ -104,7 +104,15 @@ function spawnFood(room,n){
 function spawnItem(room){
   const kind=ITEM_KINDS[Math.floor(rnd(ITEM_KINDS.length))];
   const id='i'+(room.nextId++);
-  room.items.set(id,{id,kind,x:100+rnd(WORLD-200),y:100+rnd(WORLD-200)});
+  // 道具偏向中心区域（50% 概率），避免刷在死角
+  let x,y;
+  if(rnd(1)<0.5){
+    const a=rnd(Math.PI*2),r=rnd(WORLD*0.3);
+    x=WORLD/2+Math.cos(a)*r;y=WORLD/2+Math.sin(a)*r;
+  }else{
+    x=100+rnd(WORLD-200);y=100+rnd(WORLD-200);
+  }
+  room.items.set(id,{id,kind,x,y});
 }
 function ensureItems(room){
   while(room.items.size<ITEM_TARGET)spawnItem(room);
@@ -119,14 +127,30 @@ function spawnAI(room,n){
     room.snakes.set(s.id,s);
   }
 }
+// 安全出生点：避开所有蛇头至少 350px（防出生杀）
+function safeSpawn(room){
+  for(let tries=0;tries<12;tries++){
+    const x=200+rnd(WORLD-400),y=200+rnd(WORLD-400);
+    let ok=true;
+    for(const t of room.snakes.values()){
+      if(!t.alive)continue;
+      const th=headOf(t);
+      const dx=th.x-x,dy=th.y-y;
+      if(dx*dx+dy*dy<350*350){ok=false;break}
+    }
+    if(ok)return{x,y};
+  }
+  return{x:200+rnd(WORLD-400),y:200+rnd(WORLD-400)};
+}
 function createSnake(room,ws,name,skin){
   const id='s'+(room.nextId++);
   const angle=rnd(Math.PI*2);
+  const pos=safeSpawn(room);
   const s={
     id,ws,name:name||('玩家'+Math.floor(100+rnd(900))),
     color:COLORS[Math.floor(rnd(COLORS.length))],
     skin:skin||'',
-    x:200+rnd(WORLD-400),y:200+rnd(WORLD-400),
+    x:pos.x,y:pos.y,
     angle,boost:false,targetLen:12,score:0,kills:0,
     points:[],alive:true,
     boostHeld:false,ai:false,thinkTimer:0,paused:false,
@@ -302,12 +326,13 @@ function tickRoom(room){
     pickupItems(room,s);
   }
   // 碰撞：新手保护/护盾/隐身期间免碰撞；大鱼吃小鱼
+  // 注意：暂停的蛇不动但【仍可被吃】（防暂停无敌漏洞）
   for(const s of room.snakes.values()){
-    if(!s.alive||s.paused)continue;
+    if(!s.alive)continue;
     const h=headOf(s);
     for(const t of room.snakes.values()){
-      if(!t.alive||t.id===s.id||t.paused)continue;
-      if(now<s.protectUntil||now<t.protectUntil)continue;
+      if(!t.alive||t.id===s.id)continue;
+      if(now<t.protectUntil)continue;             // 对方保护中：不能吃它
       if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
       if(t.effects.stealth&&now<t.effects.stealth)continue;
       const hitR=Math.min(34,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.35);
@@ -329,7 +354,10 @@ function tickRoom(room){
             broadcast(room,{type:'eat',killer:s.id,target:t.id,killerName:s.name,targetName:t.name,x:Math.round(p.x),y:Math.round(p.y),gained});
             if(s.killStreak>=2)broadcast(room,{type:'killstreak',killer:s.id,count:s.killStreak});
           }else if(t.score>s.score){
-            kill(room,s,'hit:'+t.name+'@'+i);
+            // 自己保护中或隐身：免疫被杀（但对方保护中已在上方排除）
+            if(!(now<s.protectUntil)&&!(s.effects.stealth&&now<s.effects.stealth)){
+              kill(room,s,'hit:'+t.name+'@'+i);
+            }
           }
           break;
         }
