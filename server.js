@@ -35,6 +35,7 @@ function createRoom(code){
   const room={
     code,
     snakes:new Map(),foods:new Map(),items:new Map(),
+    corpses:new Map(),          // id -> 尸体（死亡蛇身）
     deadQueue:[],nextId:1,aiCount:0,
     prevFoods:new Set(),prevItems:new Set(),aiCheck:0
   };
@@ -110,6 +111,33 @@ function createSnake(room,ws,name,skin){
 }
 
 function headOf(s){return s.points[0]}
+
+// ---------- 冲刺断尾（Dash） ----------
+const DASH_COOLDOWN=3500;
+function doDash(room,s){
+  const now=Date.now();
+  if(now-(s.lastDash||0)<DASH_COOLDOWN)return;
+  s.lastDash=now;
+  // 断尾：把尾巴 25% 的点变成食物（经验球）
+  const cut=Math.max(2,Math.floor(s.points.length*0.25));
+  const newFoods=[];
+  for(let i=s.points.length-cut;i<s.points.length;i+=2){
+    const p=s.points[i];
+    const id='f'+(room.nextId++);
+    room.foods.set(id,{id,x:p.x,y:p.y,big:false});
+    newFoods.push(id);
+  }
+  // 突进：沿当前方向猛冲一段距离
+  const h=headOf(s);
+  const nx=h.x+Math.cos(s.angle)*110, ny=h.y+Math.sin(s.angle)*110;
+  if(nx>BODY_R&&nx<WORLD-BODY_R&&ny>BODY_R&&ny<WORLD-BODY_R){
+    s.x=nx;s.y=ny;
+    s.points.unshift({x:nx,y:ny});
+    const keep=Math.floor(s.targetLen*0.5)+10;
+    while(s.points.length>keep)s.points.pop();
+  }
+  broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods});
+}
 
 // ---------- AI ----------
 function thinkAI(room,s){
@@ -202,13 +230,20 @@ function pickupItems(room,s){
 // ---------- 死亡 ----------
 function kill(room,s,why){
   s.alive=false;
+  // 死亡：蛇身变尸体流（保留身体供其他蛇啃食，8 秒后腐烂消失）
+  if(s.points.length>=6){
+    const cid='c'+(room.nextId++);
+    const pts=s.points.map(p=>[p.x|0,p.y|0]);
+    room.corpses.set(cid,{id:cid,points:pts,color:s.color,name:s.name,expireAt:Date.now()+8000});
+  }
+  // 少量碎片散落
   const newFoods=[];
-  const step=Math.max(6,Math.floor(s.points.length/40));
+  const step=Math.max(14,Math.floor(s.points.length/24));
   for(let i=0;i<s.points.length;i+=step){
     const p=s.points[i];
-    if(rnd(1)<0.6){
+    if(rnd(1)<0.5){
       const id='f'+(room.nextId++);
-      room.foods.set(id,{id,x:p.x,y:p.y,big:rnd(1)<0.1});
+      room.foods.set(id,{id,x:p.x,y:p.y,big:false});
       newFoods.push(id);
     }
   }
@@ -280,6 +315,43 @@ function tickRoom(room){
       if(!s.alive)break;
     }
   }
+  // 啃食尸体：蛇头碰到尸体任一点 → 整具尸体被吃，蛇获得尸体剩余经验
+  for(const s of room.snakes.values()){
+    if(!s.alive||s.paused)continue;
+    const h=headOf(s);
+    for(const [cid,cp] of room.corpses){
+      if(cp.eaten)continue;
+      for(let i=0;i<cp.points.length;i+=3){
+        const p=cp.points[i];
+        const dx=h.x-p[0],dy=h.y-p[1];
+        if(dx*dx+dy*dy<20*20){
+          cp.eaten=true;
+          room.corpses.delete(cid);
+          const gained=Math.max(1,Math.floor(cp.points.length/3));
+          s.score+=gained;
+          s.targetLen=Math.max(6,12+s.score);
+          broadcast(room,{type:'corpseEat',id:s.id,cid,x:Math.round(p[0]),y:Math.round(p[1]),gained});
+          break;
+        }
+      }
+      if(cp.eaten)break;
+    }
+  }
+  // 尸体腐烂过期
+  for(const [cid,cp] of [...room.corpses]){
+    if(now>cp.expireAt){
+      room.corpses.delete(cid);
+      // 腐烂：尸体变成少量食物
+      const step=Math.max(12,Math.floor(cp.points.length/10));
+      for(let i=0;i<cp.points.length;i+=step){
+        if(rnd(1)<0.5){
+          const p=cp.points[i];
+          const id='f'+(room.nextId++);
+          room.foods.set(id,{id,x:p[0],y:p[1],big:false});
+        }
+      }
+    }
+  }
   // 清理死亡蛇；AI 复活
   for(let i=room.deadQueue.length-1;i>=0;i--){
     if(now-room.deadQueue[i].at>3000){
@@ -332,13 +404,15 @@ function broadcastState(room){
   for(const id of ics)if(!room.prevItems.has(id))iadd.push(room.items.get(id));
   for(const id of room.prevItems)if(!room.items.has(id))idel.push(id);
   room.prevItems=new Set(ics);
+  // 尸体全量广播（数量少，直接全发，前端幂等覆盖）
+  const corpses=[...room.corpses.values()].map(cp=>({id:cp.id,points:cp.points,color:cp.color,name:cp.name}));
   const sorted=[...room.snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score);
   const rank=sorted.map((s,i)=>({n:i+1,id:s.id,name:s.name,len:Math.round(s.targetLen),score:s.score}));
   const eats=[];
   for(const s of room.snakes.values()){
     if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
   }
-  broadcast(room,{type:'state',snakes:sn,fadd,fdel,rank,eats,online,iadd,idel});
+  broadcast(room,{type:'state',snakes:sn,fadd,fdel,rank,eats,online,iadd,idel,corpses});
 }
 
 function sendInit(ws,room,s){
@@ -351,7 +425,8 @@ function sendInit(ws,room,s){
     room:room.code,
     snakes:allSnakes,
     foods:[...room.foods.values()].map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big})),
-    items:[...room.items.values()]}));
+    items:[...room.items.values()],
+    corpses:[...room.corpses.values()].map(cp=>({id:cp.id,points:cp.points,color:cp.color,name:cp.name}))}));
   // 玩家加入后：增量广播应从当前快照之后开始（防重复）
   room.prevFoods=new Set([...room.foods.keys()]);
   room.prevItems=new Set([...room.items.keys()]);
@@ -377,6 +452,8 @@ wss.on('connection',ws=>{
       ws.snake.boost=!!msg.boost;
     }else if(msg.type==='pause'&&ws.snake){
       ws.snake.paused=!!msg.paused;
+    }else if(msg.type==='dash'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
+      doDash(ws.snake.room,ws.snake);
     }else if(msg.type==='emote'&&ws.snake&&ws.snake.alive){
       ws.snake.emote=String(msg.em||'').slice(0,4);
       ws.snake.emoteUntil=Date.now()+2500;

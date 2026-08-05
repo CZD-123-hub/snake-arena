@@ -280,7 +280,7 @@ const WORLD=4000;
 let ws=null;
 const state={
   selfId:null,selfColor:'#34d399',
-  snakes:new Map(),foods:new Map(),items:new Map(),
+  snakes:new Map(),foods:new Map(),items:new Map(),corpses:new Map(),
   camX:WORLD/2,camY:WORLD/2,
   myLen:12,myRank:'?',selfAngle:0,
   targetAngle:0,boosting:false,
@@ -410,10 +410,11 @@ function handle(msg){
     case 'init':
       state.selfId=msg.selfId;state.selfColor=msg.selfColor;
       state.roomCode=msg.room||'';
-      state.snakes.clear();state.foods.clear();state.items.clear();
+      state.snakes.clear();state.foods.clear();state.items.clear();state.corpses.clear();
       for(const s of msg.snakes)state.snakes.set(s.id,s);
       for(const f of msg.foods)state.foods.set(f.id,f);
       if(msg.items)for(const it of msg.items)state.items.set(it.id,it);
+      if(msg.corpses)for(const cp of msg.corpses)state.corpses.set(cp.id,cp);
       enterGame();
       break;
     case 'state':
@@ -439,6 +440,12 @@ function handle(msg){
       for(const id of msg.fdel)state.foods.delete(id);
       if(msg.iadd)for(const it of msg.iadd)state.items.set(it.id,it);
       if(msg.idel)for(const id of msg.idel)state.items.delete(id);
+      // 尸体全量同步（幂等覆盖）
+      if(msg.corpses){
+        const cids=new Set(msg.corpses.map(c=>c.id));
+        for(const id of [...state.corpses.keys()])if(!cids.has(id))state.corpses.delete(id);
+        for(const cp of msg.corpses)state.corpses.set(cp.id,cp);
+      }
       if(msg.rank&&msg.rank.length){
         state.rank=msg.rank;
         const me=msg.rank.findIndex(r=>r.id===state.selfId);
@@ -479,6 +486,14 @@ function handle(msg){
         SFX.pickup();
         showBuffTip(ITEM_META[msg.kind]);
       }
+      break;
+    case 'corpseEat':
+      if(msg.x!=null)explode(msg.x,msg.y,'#a78bfa',20);
+      if(msg.id===state.selfId)SFX.kill();
+      break;
+    case 'dash':
+      if(msg.id===state.selfId)SFX.pickup();
+      if(msg.foods)for(const fid of msg.foods){const f=state.foods.get(fid);if(f)explode(f.x,f.y,'#fbbf24',4)}
       break;
     case 'emote':
       if(msg.id!==state.selfId){
@@ -689,9 +704,28 @@ canvas.addEventListener('mousedown',e=>{if(e.button===0)state.boosting=true});
 window.addEventListener('mouseup',e=>{if(e.button===0)state.boosting=false});
 window.addEventListener('keydown',e=>{
   if(e.code==='Space'){e.preventDefault();state.boosting=true}
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight'){e.preventDefault();doDash()}
 });
 window.addEventListener('keyup',e=>{
   if(e.code==='Space')state.boosting=false;
+});
+
+// 冲刺断尾：Shift / 双击
+let dashCooldown=0;
+function doDash(){
+  const now=Date.now();
+  if(now<dashCooldown)return;
+  if(!state.inGame||state.paused||!ws||ws.readyState!==1)return;
+  dashCooldown=now+3500;
+  ws.send(JSON.stringify({type:'dash'}));
+  SFX.pickup();
+}
+let lastTapT=0;
+canvas.addEventListener('dblclick',e=>{e.preventDefault();doDash()});
+canvas.addEventListener('touchstart',e=>{
+  const now=Date.now();
+  if(now-lastTapT<300){doDash();lastTapT=0;return}
+  lastTapT=now;
 });
 
 const joy={active:false,cx:0,cy:0,dx:0,dy:0,joyId:-1,boostId:-1};
@@ -876,6 +910,22 @@ function draw(){
       ctx.fillStyle='#d97706';
       ctx.beginPath();ctx.arc(f.x,f.y,3.2,0,Math.PI*2);ctx.fill();
     }
+  }
+
+  // 尸体流（死亡蛇身，半透明肉条）
+  for(const cp of state.corpses.values()){
+    if(!cp.points||cp.points.length<2)continue;
+    const hp=cp.points[0];
+    if(hp[0]<state.camX-W/2/vs-200||hp[0]>state.camX+W/2/vs+200||hp[1]<state.camY-H/2/vs-200||hp[1]>state.camY+H/2/vs+200)continue;
+    ctx.globalAlpha=0.7;
+    ctx.strokeStyle=cp.color||'#94a3b8';
+    ctx.lineWidth=9;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.beginPath();
+    ctx.moveTo(cp.points[0][0],cp.points[0][1]);
+    for(let i=1;i<cp.points.length;i++)ctx.lineTo(cp.points[i][0],cp.points[i][1]);
+    ctx.stroke();
+    ctx.globalAlpha=1;
   }
 
   // 蛇
