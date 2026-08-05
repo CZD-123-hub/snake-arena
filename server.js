@@ -37,7 +37,9 @@ function createRoom(code){
     snakes:new Map(),foods:new Map(),items:new Map(),
     corpses:new Map(),          // id -> 尸体（死亡蛇身）
     deadQueue:[],nextId:1,aiCount:0,
-    prevFoods:new Set(),prevItems:new Set(),aiCheck:0
+    prevFoods:new Set(),prevItems:new Set(),aiCheck:0,
+    lastActiveAt:Date.now(),    // 最后活跃时间（房间销毁用）
+    timers:[]                   // 房间内待清理的定时器
   };
   spawnFood(room,FOOD_TARGET);
   spawnAI(room,AI_TARGET);
@@ -46,11 +48,29 @@ function createRoom(code){
 }
 const rooms=new Map();
 const DEFAULT_CODE='global';
+const ROOM_TTL_MS=10*60*1000;   // 房间 10 分钟无人后销毁
 rooms.set(DEFAULT_CODE,createRoom(DEFAULT_CODE));
 function getRoom(code){
   const c=String(code||DEFAULT_CODE).slice(0,12)||DEFAULT_CODE;
   if(!rooms.has(c))rooms.set(c,createRoom(c));
-  return rooms.get(c);
+  const room=rooms.get(c);
+  room.lastActiveAt=Date.now();
+  return room;
+}
+// 清理空房间：非默认房间 10 分钟无玩家且无 AI 活动则销毁
+function cleanRooms(){
+  const now=Date.now();
+  for(const [code,room] of rooms){
+    if(code===DEFAULT_CODE)continue;
+    if(now-room.lastActiveAt>ROOM_TTL_MS){
+      let anyPlayer=false;
+      for(const s of room.snakes.values()){if(s.ws){anyPlayer=true;break}}
+      if(!anyPlayer){
+        for(const t of room.timers)clearTimeout(t);
+        rooms.delete(code);
+      }
+    }
+  }
 }
 
 // ---------- 生成 ----------
@@ -264,6 +284,7 @@ function tick(){
   for(const room of rooms.values()){
     tickRoom(room);
   }
+  cleanRooms();
 }
 function tickRoom(room){
   const now=Date.now();
@@ -357,7 +378,10 @@ function tickRoom(room){
     if(now-room.deadQueue[i].at>3000){
       const d=room.deadQueue[i];
       room.snakes.delete(d.id);
-      if(d.ai)setTimeout(()=>{if(rooms.has(room.code))spawnAI(room,1)},2000+rnd(5000));
+      if(d.ai){
+        const t=setTimeout(()=>{if(rooms.has(room.code))spawnAI(room,1)},2000+rnd(5000));
+        room.timers.push(t);
+      }
       room.deadQueue.splice(i,1);
     }
   }
@@ -440,15 +464,17 @@ wss.on('connection',ws=>{
     let msg;try{msg=JSON.parse(raw)}catch(e){return}
     if(!msg||!msg.type)return;
     if(msg.type==='join'||msg.type==='respawn'){
-      const room=getRoom(msg.room||DEFAULT_CODE);
+      const room=getRoom(String(msg.room||'').replace(/[^\w]/g,'').slice(0,12)||DEFAULT_CODE);
       if(ws.snake&&ws.snake.room!==room){ws.snake.room.snakes.delete(ws.snake.id)}
-      const s=createSnake(room,ws,String(msg.name||'').slice(0,12),String(msg.skin||''));
+      const s=createSnake(room,ws,String(msg.name||'').replace(/[^\u4e00-\u9fa5A-Za-z0-9_·\s]/g,'').slice(0,12),String(msg.skin||'').replace(/[^\w]/g,'').slice(0,12));
       s.room=room;
       ws.snake=s;
       room.snakes.set(s.id,s);
       sendInit(ws,room,s);
     }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
-      ws.snake.angle=+msg.angle||0;
+      // 输入校验：angle 必须为有限数字并归一化到 [-2π,2π]，boost 转布尔
+      const a=+msg.angle;
+      if(Number.isFinite(a))ws.snake.angle=((a%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
       ws.snake.boost=!!msg.boost;
     }else if(msg.type==='pause'&&ws.snake){
       ws.snake.paused=!!msg.paused;
