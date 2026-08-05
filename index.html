@@ -178,7 +178,7 @@
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
   /* 手机端操作按钮：由 body.touch-device 类控制（JS 判断触摸设备，不依赖 CSS 设备查询） */
-  #actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
+  #actionZone{display:none;position:fixed;z-index:30;user-select:none;-webkit-user-select:none;touch-action:none;
     bottom:34px;right:22px;flex-direction:column;gap:14px;align-items:flex-end}
   body.touch-device #actionZone{display:flex}
   #actionZone .act-btn{
@@ -199,7 +199,7 @@
     #leaderboard{top:12px;right:12px;min-width:148px;max-width:164px;padding:8px 10px}
     #leaderboard .lb-row{font-size:11px;padding:2.5px 0}
     #leaderboard .lb-name{max-width:66px}
-    #minimap{top:196px;right:12px;bottom:auto;width:96px;height:96px}
+    #minimap{top:auto;left:12px;bottom:12px;right:auto;width:96px;height:96px}
     #hud{top:12px;left:12px;padding:9px 12px;min-width:142px}
     #hud .val{font-size:19px}
     #hud .ic{width:19px;height:19px;font-size:11px}
@@ -215,7 +215,7 @@
     #leaderboard{top:12px;right:12px;min-width:150px;max-width:172px;padding:8px 10px}
     #leaderboard .lb-row{font-size:11px;padding:2.5px 0}
     #leaderboard .lb-name{max-width:74px}
-    #minimap{top:196px;right:12px;bottom:auto;width:88px;height:88px}
+    #minimap{top:auto;left:12px;bottom:12px;right:auto;width:88px;height:88px}
     #hud{top:12px;left:12px;padding:9px 12px;min-width:138px}
     #hud .val{font-size:18px}
     #hud .ic{width:18px;height:18px;font-size:11px}
