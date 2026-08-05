@@ -123,11 +123,8 @@ function move(s){
   // 碰到边界：出局
   if(nx<BODY_R||nx>WORLD-BODY_R||ny<BODY_R||ny>WORLD-BODY_R)return false;
   s.points.unshift({x:nx,y:ny});
-  // 加速燃烧长度和经验
-  if(s.boost){
-    s.targetLen=Math.max(6,s.targetLen-0.25);
-    s.score=Math.max(0,s.score-0.003);
-  }
+  // 加速燃烧经验（长度自动跟随）
+  if(s.boost)s.score=Math.max(0,s.score-0.003);
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
   s.x=nx;s.y=ny;
@@ -141,8 +138,8 @@ function eatFood(s){
     const eatR=f.big?18:13;
     if(dx*dx+dy*dy<eatR*eatR){
       foods.delete(id);
-      if(f.big){s.targetLen+=2.5;s.score+=5}
-      else{s.targetLen+=MAX_GROW;s.score+=1}
+      if(f.big)s.score+=5;
+      else s.score+=1;
       s.ateFoods=s.ateFoods||[];
       s.ateFoods.push({x:f.x,y:f.y,big:f.big});
     }
@@ -176,6 +173,8 @@ function currentRank(id){
 function tick(){
   for(const s of snakes.values()){
     if(!s.alive)continue;
+    // 长度完全由经验决定：经验越少长度越短
+    s.targetLen=Math.max(6,12+s.score);
     if(s.ai){
       s.thinkTimer=(s.thinkTimer||0)-1;
       if(s.thinkTimer<=0){thinkAI(s);s.thinkTimer=3}
@@ -195,11 +194,10 @@ function tick(){
         const dx=h.x-p.x,dy=h.y-p.y;
         if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){
           if(s.score>t.score){
-            // 大鱼吃小鱼：吃掉对方，获得一半经验
+            // 大鱼吃小鱼：吃掉对方，获得一半经验（长度自动跟随经验）
             t.eatenBy=s.name;
             const gained=Math.max(1,Math.floor(t.score*0.5));
             s.score+=gained;
-            s.targetLen+=gained*0.4;
             kill(t,'eaten:'+s.name);
             broadcast({type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
           }else if(t.score>s.score){
