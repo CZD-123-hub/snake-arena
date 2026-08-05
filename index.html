@@ -561,6 +561,25 @@ function handle(msg){
       break;
     case 'state':
       state.lastStateAt=performance.now();
+      // 自适应抖动缓冲：测量 state 包到达间隔，p95 × 1.6 为目标缓冲（夹 90~250ms），
+      // 网络差自动加深吸收抖动，网络好保持低延迟；每包平滑趋近防突变
+      {
+        const nt=performance.now();
+        const gap=nt-(state._lastStateT||nt);
+        state._lastStateT=nt;
+        if(gap>8&&gap<2000){
+          state._gaps=state._gaps||[];
+          state._gaps.push(gap);
+          if(state._gaps.length>40)state._gaps.shift();
+          if(state._gaps.length>=10){
+            const srt=[...state._gaps].sort((a,b)=>a-b);
+            const p95=srt[Math.floor(srt.length*0.95)];
+            const target=Math.max(90,Math.min(250,p95*1.6));
+            const cur=state._renderDelay==null?90:state._renderDelay;
+            state._renderDelay=cur+(target-cur)*0.08;
+          }
+        }
+      }
       for(const s of msg.snakes){
         const old=state.snakes.get(s.id);
         const nowT=performance.now();
@@ -1204,7 +1223,7 @@ function draw(){
   // 蛇：自己用本地预测渲染点（平滑缓冲防跳变）；其他蛇时间缓冲插值
   // 统一用"补齐/截断 + lerp"：点数量变化时也平滑，头部永不跳变
   const nowT=performance.now();
-  const RENDER_DELAY=90; // 渲染延迟缓冲（ms）：看"过去 90ms"的位置，两包之间匀速插值
+  const RENDER_DELAY=state._renderDelay==null?90:state._renderDelay; // 自适应抖动缓冲（90~250ms）
   for(const s of state.snakes.values()){
     if(state.spectate&&s.id===state.selfId)continue;
     const isMe=s.id===state.selfId;
