@@ -177,6 +177,26 @@
   #buffsFx .bff{background:rgba(5,150,105,.92);color:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700;
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
+  /* 手机端固定操作区 */
+  #joyZone,#actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none}
+  #joyZone{bottom:26px;left:26px;width:130px;height:130px;border-radius:50%;
+    background:rgba(255,255,255,.45);border:2px solid rgba(26,35,50,.18);
+    box-shadow:0 8px 24px -8px rgba(26,35,50,.25)}
+  #joyKnob{position:absolute;left:50%;top:50%;width:46px;height:46px;border-radius:50%;
+    background:rgba(5,150,105,.5);border:2px solid rgba(5,150,105,.8);
+    transform:translate(-50%,-50%)}
+  #actionZone{bottom:34px;right:22px;display:flex;flex-direction:column;gap:14px;align-items:flex-end}
+  #actionZone .act-btn{
+    width:78px;height:78px;border-radius:50%;border:none;cursor:pointer;font-family:inherit;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    font-size:22px;color:#fff;font-weight:700;
+    background:rgba(8,145,178,.75);border:2px solid rgba(255,255,255,.5);
+    box-shadow:0 8px 22px -6px rgba(8,145,178,.6);transition:transform .1s;
+  }
+  #actionZone .act-btn.boost{background:rgba(5,150,105,.8)}
+  #actionZone .act-btn span{font-size:10px;letter-spacing:.05em}
+  #actionZone .act-btn:active{transform:scale(.92)}
+  @media (hover:hover) and (pointer:fine){#joyZone,#actionZone{display:none!important}}
   #killfeed{
     position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:12;display:flex;flex-direction:column;
     gap:4px;align-items:center;pointer-events:none;width:min(420px,92vw);
@@ -246,6 +266,15 @@
 <div id="streak"></div>
 <div id="killfeed"></div>
 
+<!-- 手机端固定操作区 -->
+<div id="joyZone">
+  <div id="joyBase"><div id="joyKnob"></div></div>
+</div>
+<div id="actionZone">
+  <button id="dashBtn" class="act-btn">⚡<span>冲刺</span></button>
+  <button id="boostBtn" class="act-btn boost">🚀<span>加速</span></button>
+</div>
+
 <div class="panel" id="death">
   <h2>💥 你出局了</h2>
   <div class="sub">本局长度 <b id="dLen">0</b> · 经验 <b id="dScore">0</b> · 击杀 <b id="dKills">0</b> · 排名 <b id="dRank">?</b></div>
@@ -268,7 +297,9 @@ const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
 let W=0,H=0,DPR=1;
 function resize(){
+  // 移动端用 1.5x 减少渲染像素量（性能），桌面保持 2x
   DPR=Math.min(2,window.devicePixelRatio||1);
+  if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent))DPR=Math.min(1.5,DPR||1);
   W=innerWidth;H=innerHeight;
   canvas.width=W*DPR;canvas.height=H*DPR;
   canvas.style.width=W+'px';canvas.style.height=H+'px';
@@ -728,9 +759,64 @@ canvas.addEventListener('touchstart',e=>{
   lastTapT=now;
 });
 
+// 手机端：固定摇杆 + 加速/冲刺按钮（替代任意点摇杆）
 const joy={active:false,cx:0,cy:0,dx:0,dy:0,joyId:-1,boostId:-1};
+const joyZoneEl=$('joyZone'),joyKnobEl=$('joyKnob');
+function isTouchDevice(){return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)}
+if(isTouchDevice()){
+  joyZoneEl.style.display='block';
+  $('actionZone').style.display='flex';
+  // 固定摇杆：按住拖动转向
+  joyZoneEl.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if(joy.joyId<0){
+      joy.joyId=e.changedTouches[0].identifier;
+      joy.active=true;
+      joy.cx=e.changedTouches[0].clientX;
+      joy.cy=e.changedTouches[0].clientY;
+      joy.dx=0;joy.dy=0;
+    }
+  },{passive:false});
+  joyZoneEl.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier===joy.joyId){
+        // 以摇杆中心为基准计算方向（固定摇杆：不跟随手指起始点）
+        const r=joyZoneEl.getBoundingClientRect();
+        const cx=r.left+r.width/2,cy=r.top+r.height/2;
+        let dx=t.clientX-cx,dy=t.clientY-cy;
+        const max=42;
+        const d=Math.hypot(dx,dy);
+        if(d>max){dx=dx/d*max;dy=dy/d*max}
+        joy.dx=dx;joy.dy=dy;
+        joyKnobEl.style.transform=`translate(${dx-23}px,${dy-23}px)`;
+      }
+    }
+  },{passive:false});
+  const joyZoneEnd=e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===joy.joyId){
+        joy.joyId=-1;joy.active=false;joy.dx=0;joy.dy=0;
+        joyKnobEl.style.transform='translate(-23px,-23px)';
+      }
+    }
+  };
+  joyZoneEl.addEventListener('touchend',joyZoneEnd,{passive:false});
+  joyZoneEl.addEventListener('touchcancel',joyZoneEnd,{passive:false});
+  // 加速按钮：按住加速
+  const boostBtnEl=$('boostBtn');
+  boostBtnEl.addEventListener('touchstart',e=>{e.preventDefault();state.boosting=true},{passive:false});
+  boostBtnEl.addEventListener('touchend',e=>{e.preventDefault();state.boosting=false},{passive:false});
+  boostBtnEl.addEventListener('touchcancel',()=>{state.boosting=false},{passive:false});
+  // 冲刺按钮
+  $('dashBtn').addEventListener('touchstart',e=>{e.preventDefault();doDash()},{passive:false});
+  $('dashBtn').addEventListener('click',()=>doDash());
+}else{
+  // 桌面/无固定控件的触摸设备：第一根手指=任意点摇杆，第二根手指=加速
+}
 function joyStart(e){
   e.preventDefault();
+  if(isTouchDevice())return; // 固定控件已接管
   for(const t of e.changedTouches){
     if(joy.joyId<0){
       joy.joyId=t.identifier;joy.active=true;joy.cx=t.clientX;joy.cy=t.clientY;joy.dx=0;joy.dy=0;
@@ -741,6 +827,7 @@ function joyStart(e){
 }
 function joyMove(e){
   e.preventDefault();
+  if(isTouchDevice())return;
   for(const t of e.changedTouches){
     if(t.identifier===joy.joyId){joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;}
   }
@@ -820,6 +907,8 @@ function localPredict(){
   }
 }
 
+// 移动端关闭 shadowBlur（性能大杀器），桌面保留
+const SHADOW=isTouchDevice()?0:1;
 function draw(){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#eef2f8';
@@ -867,7 +956,7 @@ function draw(){
   wallGrad.addColorStop(.5,'rgba(217,119,6,.7)');
   wallGrad.addColorStop(1,'rgba(8,145,178,.7)');
   ctx.strokeStyle=wallGrad;ctx.lineWidth=5;
-  ctx.shadowColor='rgba(225,29,72,.35)';ctx.shadowBlur=18;
+  ctx.shadowColor='rgba(225,29,72,.35)';ctx.shadowBlur=18*SHADOW;
   ctx.strokeRect(18,18,WORLD-36,WORLD-36);
   ctx.shadowBlur=0;
 
@@ -888,7 +977,7 @@ function draw(){
     const meta=ITEM_META[it.kind]||{e:'?',color:'#94a3b8'};
     const pulse=1+Math.sin(Date.now()/260+it.x)*0.12;
     ctx.fillStyle=meta.color;
-    ctx.shadowColor=meta.color;ctx.shadowBlur=16;
+    ctx.shadowColor=meta.color;ctx.shadowBlur=16*SHADOW;
     ctx.beginPath();ctx.arc(it.x,it.y,13*pulse,0,Math.PI*2);ctx.fill();
     ctx.shadowBlur=0;
     ctx.fillStyle='#fff';
@@ -903,7 +992,7 @@ function draw(){
     if(f.big){
       const pulse=1+Math.sin(Date.now()/300+f.x)*0.15;
       ctx.fillStyle='#f59e0b';
-      ctx.shadowColor='#fbbf24';ctx.shadowBlur=12;
+      ctx.shadowColor='#fbbf24';ctx.shadowBlur=12*SHADOW;
       ctx.beginPath();ctx.arc(f.x,f.y,7*pulse,0,Math.PI*2);ctx.fill();
       ctx.shadowBlur=0;
     }else{
@@ -949,7 +1038,8 @@ function draw(){
   drawParticles();
   ctx.restore();
 
-  if(joy.active){
+  // 旧版任意点摇杆渲染（仅桌面触摸兜底；固定摇杆由 CSS/DOM 显示）
+  if(joy.active&&!isTouchDevice()){
     ctx.strokeStyle='rgba(26,35,50,.2)';ctx.lineWidth=2;
     ctx.beginPath();ctx.arc(joy.cx,joy.cy,40,0,Math.PI*2);ctx.stroke();
     ctx.fillStyle='rgba(5,150,105,.45)';
@@ -1001,7 +1091,7 @@ function drawSnake(s,isMe,usePts){
   // 隐身：更透明
   if(s.fx&&s.fx.stealth>0)ctx.globalAlpha=alpha*0.35;
   if(s.boost){
-    ctx.shadowColor=body;ctx.shadowBlur=14;
+    ctx.shadowColor=body;ctx.shadowBlur=14*SHADOW;
   }
   const grad=ctx.createLinearGradient(h[0],h[1],pts[pts.length-1][0],pts[pts.length-1][1]);
   grad.addColorStop(0,lighten(body,isMe?0.25:0));

@@ -30,6 +30,15 @@ const ITEM_KINDS=['shield','magnet','boost','stealth'];
 
 function rnd(n){return Math.random()*n}
 
+// 点位采样：广播时减少点数量，降带宽（每3点取1；蛇越长采样越密保证平滑）
+function ptsSampled(pts){
+  const step=Math.max(2,Math.floor(pts.length/40));
+  const out=[];
+  for(let i=0;i<pts.length;i+=step)out.push([pts[i].x|0,pts[i].y|0]);
+  if(out.length<2)return pts.map(p=>[p.x|0,p.y|0]);
+  return out;
+}
+
 // ---------- 房间 ----------
 function createRoom(code){
   const room={
@@ -418,7 +427,7 @@ function broadcastState(room){
     sn.push({id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
       len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
       prot:now<s.protectUntil,fx:effObj(s,now),
-      points:s.points.map(p=>[p.x|0,p.y|0])});
+      points:ptsSampled(s.points)});
   }
   const cur=[...room.foods.keys()];
   for(const id of cur)if(!room.prevFoods.has(id))fadd.push(room.foods.get(id));
@@ -429,7 +438,7 @@ function broadcastState(room){
   for(const id of room.prevItems)if(!room.items.has(id))idel.push(id);
   room.prevItems=new Set(ics);
   // 尸体全量广播（数量少，直接全发，前端幂等覆盖）
-  const corpses=[...room.corpses.values()].map(cp=>({id:cp.id,points:cp.points,color:cp.color,name:cp.name}));
+  const corpses=[...room.corpses.values()].map(cp=>({id:cp.id,points:ptsSampled(cp.points),color:cp.color,name:cp.name}));
   const sorted=[...room.snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score);
   const rank=sorted.map((s,i)=>({n:i+1,id:s.id,name:s.name,len:Math.round(s.targetLen),score:s.score}));
   const eats=[];
@@ -444,13 +453,13 @@ function sendInit(ws,room,s){
   const allSnakes=[...room.snakes.values()].filter(x=>x.alive).map(x=>({id:x.id,name:x.name,color:x.color,skin:x.skin,
     x:Math.round(x.x),y:Math.round(x.y),len:Math.round(x.targetLen),score:x.score,boost:x.boost,kills:x.kills||0,
     prot:now<x.protectUntil,fx:effObj(x,now),
-    points:x.points.map(p=>[p.x|0,p.y|0])}));
+    points:ptsSampled(x.points)}));
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
     room:room.code,
     snakes:allSnakes,
     foods:[...room.foods.values()].map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big})),
     items:[...room.items.values()],
-    corpses:[...room.corpses.values()].map(cp=>({id:cp.id,points:cp.points,color:cp.color,name:cp.name}))}));
+    corpses:[...room.corpses.values()].map(cp=>({id:cp.id,points:ptsSampled(cp.points),color:cp.color,name:cp.name}))}));
   // 玩家加入后：增量广播应从当前快照之后开始（防重复）
   room.prevFoods=new Set([...room.foods.keys()]);
   room.prevItems=new Set([...room.items.keys()]);
