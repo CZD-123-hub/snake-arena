@@ -76,7 +76,8 @@ function getRoom(code){
 function cleanRooms(){
   for(const [code,room] of rooms){
     let anyPlayer=false;
-    for(const s of room.snakes.values()){if(s.ws){anyPlayer=true;break}}
+    // ws 在线或 offline 重连窗口期内都算活跃（防止重连时房间已被销毁）
+    for(const s of room.snakes.values()){if(s.ws||s.offline){anyPlayer=true;break}}
     if(!anyPlayer){
       for(const t of room.timers)clearTimeout(t);
       rooms.delete(code);
@@ -157,7 +158,9 @@ function createSnake(room,ws,name,skin){
     points:[],alive:true,
     boostHeld:false,ai:false,thinkTimer:0,paused:false,
     protectUntil:Date.now()+PROTECT_MS,
-    effects:{},lastKillAt:0,killStreak:0,emoteUntil:0
+    effects:{},lastKillAt:0,killStreak:0,emoteUntil:0,
+    sessionToken:'st'+Math.random().toString(36).slice(2)+Date.now().toString(36),
+    offline:false,offlineUntil:0
   };
   for(let i=0;i<12;i++){
     s.points.push({x:s.x-i*9*Math.cos(angle),y:s.y-i*9*Math.sin(angle)});
@@ -362,7 +365,7 @@ function tick(){
 function tickRoom(room){
   const now=Date.now();
   for(const s of room.snakes.values()){
-    if(!s.alive||s.paused)continue;
+    if(!s.alive||s.paused||s.offline)continue;
     s.targetLen=Math.max(6,12+s.score);
     if(s.ai){
       s.thinkTimer=(s.thinkTimer||0)-1;
@@ -479,6 +482,10 @@ function tickRoom(room){
     for(const s of room.snakes.values())if(s.alive&&s.ai)aiAlive++;
     if(aiAlive<AI_TARGET)spawnAI(room,AI_TARGET-aiAlive);
   }
+  // 离线玩家超时清理（30s 内可重连，超时移除）
+  for(const [id,s] of [...room.snakes]){
+    if(s.offline&&now>s.offlineUntil)room.snakes.delete(id);
+  }
   ensureItems(room);
   broadcastState(room);
 }
@@ -533,7 +540,7 @@ function sendInit(ws,room,s){
     prot:now<x.protectUntil,fx:effObj(x,now),
     points:ptsSampled(x.points)}));
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
-    room:room.code,
+    room:room.code,token:s.sessionToken,
     snakes:allSnakes,
     foods:[...room.foods.values()].map(f=>({id:f.id,x:f.x|0,y:f.y|0,big:!!f.big})),
     items:[...room.items.values()],
@@ -560,6 +567,33 @@ wss.on('connection',ws=>{
   ws.on('message',raw=>{
     let msg;try{msg=JSON.parse(raw)}catch(e){return}
     if(!msg||!msg.type)return;
+    if(msg.type==='rejoin'){
+      // 断线重连：按 sessionToken 找回原蛇恢复原位
+      const token=String(msg.token||'');
+      const code=String(msg.room||'').replace(/[^\w]/g,'').slice(0,12)||DEFAULT_CODE;
+      const room=getRoom(code);
+      let s=null;
+      if(room)for(const x of room.snakes.values()){
+        if(x.sessionToken===token){s=x;break}
+      }
+      if(s&&s.alive&&!s.ai){
+        s.ws=ws;ws.snake=s;
+        s.offline=false;s.offlineUntil=0;
+        s.paused=false;
+        sendInit(ws,room,s);
+        broadcast(room,{type:'rejoin',id:s.id,name:s.name});
+        return;
+      }
+      // 找不到或已死：按新加入处理
+      const code2=code;
+      if(ws.snake&&ws.snake.room){ws.snake.room.snakes.delete(ws.snake.id)}
+      const ns=createSnake(room,ws,String(msg.name||'').replace(/[^\u4e00-\u9fa5A-Za-z0-9_·\s]/g,'').slice(0,12),String(msg.skin||'').replace(/[^\w]/g,'').slice(0,12));
+      ns.room=room;
+      ws.snake=ns;
+      room.snakes.set(ns.id,ns);
+      sendInit(ws,room,ns);
+      return;
+    }
     if(msg.type==='join'||msg.type==='respawn'){
       const room=getRoom(String(msg.room||'').replace(/[^\w]/g,'').slice(0,12)||DEFAULT_CODE);
       if(ws.snake&&ws.snake.room!==room){ws.snake.room.snakes.delete(ws.snake.id)}
@@ -568,7 +602,7 @@ wss.on('connection',ws=>{
       ws.snake=s;
       room.snakes.set(s.id,s);
       sendInit(ws,room,s);
-    }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
+    }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused&&!ws.snake.offline){
       if(!rateLimit(ws,'input'))return;
       // 输入校验：angle 必须为有限数字并归一化到 [-2π,2π]，boost 转布尔
       const a=+msg.angle;
@@ -576,7 +610,7 @@ wss.on('connection',ws=>{
       ws.snake.boost=!!msg.boost;
     }else if(msg.type==='pause'&&ws.snake){
       ws.snake.paused=!!msg.paused;
-    }else if(msg.type==='dash'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
+    }else if(msg.type==='dash'&&ws.snake&&ws.snake.alive&&!ws.snake.paused&&!ws.snake.offline){
       doDash(ws.snake.room,ws.snake);
     }else if(msg.type==='emote'&&ws.snake&&ws.snake.alive){
       if(!rateLimit(ws,'emote'))return;
@@ -586,7 +620,14 @@ wss.on('connection',ws=>{
       broadcast(room,{type:'emote',id:ws.snake.id,em:ws.snake.emote});
     }
   });
-  ws.on('close',()=>{if(ws.snake&&ws.snake.room)ws.snake.room.snakes.delete(ws.snake.id)});
+  // 断开：蛇保留 30s（offline 可被吃，防无敌；30s 内可凭 token 重连恢复）
+  ws.on('close',()=>{
+    const s=ws.snake;
+    if(s&&s.room&&!s.ai){
+      s.offline=true;s.offlineUntil=Date.now()+30000;
+      s.ws=null;
+    }
+  });
 });
 
 setInterval(tick,TICK_MS);

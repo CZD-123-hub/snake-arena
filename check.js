@@ -120,6 +120,33 @@ async function run() {
     if (emMsgs.length <= 2) ok('emote 限流（10 连发仅 ' + emMsgs.length + ' 条广播）');
     else bad('emote 限流失效', '广播 ' + emMsgs.length + ' 条');
 
+    // 场景 6：断线重连恢复原位
+    const w3 = new WebSocket('ws://127.0.0.1:' + PORT + '/ws');
+    const rc1 = await new Promise(res => {
+      w3.on('open', () => w3.send(JSON.stringify({ type: 'join', name: 'RC', room: 'recon' })));
+      w3.on('message', d => {
+        const m = JSON.parse(d);
+        if (m.type === 'init') res({ token: m.token, sid: m.selfId });
+      });
+      setTimeout(() => res(null), 5000);
+    });
+    if (rc1) {
+      w3.close();
+      await sleep(400);
+      const w4 = new WebSocket('ws://127.0.0.1:' + PORT + '/ws');
+      const rc2 = await new Promise(res => {
+        w4.on('open', () => w4.send(JSON.stringify({ type: 'rejoin', token: rc1.token, room: 'recon' })));
+        w4.on('message', d => {
+          const m = JSON.parse(d);
+          if (m.type === 'init') res({ sid: m.selfId, token: m.token });
+        });
+        setTimeout(() => res(null), 5000);
+      });
+      if (rc2 && rc2.sid === rc1.sid && rc2.token === rc1.token) ok('断线重连恢复原位（同一蛇）');
+      else bad('断线重连', JSON.stringify(rc2));
+      w4.close();
+    } else bad('重连测试 join 超时');
+
     c1.ws.close(); c2.ws.close();
     await sleep(200);
   } finally {
