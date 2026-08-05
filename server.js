@@ -27,7 +27,9 @@ const server=http.createServer((req,res)=>{
     res.end(JSON.stringify(hallOfFame.slice(0,10)));
     return;
   }
-  let f=req.url==='/'?'index.html':decodeURIComponent(req.url.split('?')[0].slice(1));
+  // 按路径名匹配（忽略查询串：?perf=1 等参数不影响静态资源定位）
+  const pathname=req.url.split('?')[0];
+  let f=pathname==='/'?'index.html':decodeURIComponent(pathname.slice(1));
   if(f.includes('..')){res.writeHead(403);res.end();return}
   fs.readFile(path.join(__dirname,f),(e,d)=>{
     if(e){res.writeHead(404);res.end('404');return}
