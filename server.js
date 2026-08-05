@@ -54,10 +54,21 @@ function getRoom(code){
 
 // ---------- 生成 ----------
 function spawnFood(room,n){
+  // 中心密集：65% 食物集中在中心 28% 半径区域，其余分散全图
+  // 逼着蛇往中间聚集，战斗自然发生
   for(let i=0;i<n;i++){
     const id='f'+(room.nextId++);
     const big=rnd(1)<0.15;
-    room.foods.set(id,{id,x:40+rnd(WORLD-80),y:40+rnd(WORLD-80),big});
+    let x,y;
+    if(rnd(1)<0.65){
+      const a=rnd(Math.PI*2);
+      const r=rnd(WORLD*0.28);
+      x=WORLD/2+Math.cos(a)*r;
+      y=WORLD/2+Math.sin(a)*r;
+    }else{
+      x=40+rnd(WORLD-80);y=40+rnd(WORLD-80);
+    }
+    room.foods.set(id,{id,x,y,big});
   }
 }
 function spawnItem(room){

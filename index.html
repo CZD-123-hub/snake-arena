@@ -837,6 +837,16 @@ function draw(){
   ctx.strokeRect(18,18,WORLD-36,WORLD-36);
   ctx.shadowBlur=0;
 
+  // 中心富食区提示（淡淡光圈）
+  const centerR=WORLD*0.28;
+  ctx.fillStyle='rgba(217,119,6,.04)';
+  ctx.beginPath();ctx.arc(WORLD/2,WORLD/2,centerR,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='rgba(217,119,6,.12)';ctx.lineWidth=2;ctx.setLineDash([10,8]);
+  ctx.beginPath();ctx.arc(WORLD/2,WORLD/2,centerR,0,Math.PI*2);ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='rgba(217,119,6,.3)';ctx.font='13px system-ui';ctx.textAlign='center';
+  ctx.fillText('富食区 · 食物最密集',WORLD/2,WORLD/2);
+
   // 道具
   const vs=state.scale||1;
   for(const it of state.items.values()){
