@@ -128,6 +128,21 @@
     text-align:center;display:none;
     backdrop-filter:blur(12px);box-shadow:0 24px 70px -20px rgba(225,29,72,.3);
   }
+  #roundEnd{
+    top:50%;left:50%;transform:translate(-50%,-50%);width:min(380px,90vw);
+    text-align:center;display:none;z-index:20;
+    backdrop-filter:blur(12px);box-shadow:0 24px 70px -20px rgba(217,119,6,.35);
+  }
+  #roundEnd .sub{color:var(--muted);font-size:13px;margin-bottom:14px;line-height:2}
+  #roundEnd .sub b{color:var(--text);font-size:15px}
+  .hall-wrap{margin-top:14px;text-align:left;max-height:150px;overflow-y:auto}
+  .hall-wrap .field-label{margin:0 0 6px;text-align:center}
+  #hallBody{display:flex;flex-direction:column;gap:3px;font-size:12px}
+  #hallBody .hb-row{display:flex;gap:8px;align-items:center;padding:3px 6px;border-radius:8px;background:var(--panel2)}
+  #hallBody .hb-n{width:18px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  #hallBody .hb-n.top{color:var(--amber);font-weight:700}
+  #hallBody .hb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #hallBody .hb-score{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
   #death h2{font-size:28px;margin-bottom:4px;
     background:linear-gradient(135deg,#e11d48,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
   #death .sub{color:var(--muted);font-size:13px;margin-bottom:8px}
@@ -135,12 +150,12 @@
   #death .rec{margin-bottom:16px;font-size:11.5px;color:var(--muted);background:var(--panel2);
     border-radius:10px;padding:8px;line-height:1.8}
   #death .rec b{color:var(--amber)}
-  #death .btn,#pause .btn{
+  #death .btn,#pause .btn,#roundEnd .btn{
     width:100%;background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border:none;border-radius:11px;
     padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px;
     transition:transform .12s,filter .12s;
   }
-  #death .btn:hover,#pause .btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
+  #death .btn:hover,#pause .btn:hover,#roundEnd .btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
   #death .btn.ghost,#pause .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border)}
 
   #minimap{
@@ -264,13 +279,17 @@
     <span class="em">💡</span> 吃球长大 · 大蛇吃小蛇 · 撞墙出局 · 拾取道具
   </div>
   <div id="stats"></div>
+  <div class="hall-wrap" id="hallWrap" style="display:none">
+    <div class="field-label">🏆 名人堂 · 本服历史</div>
+    <div id="hallBody"></div>
+  </div>
 </div>
 
 <div class="panel" id="hud" style="display:none">
   <div class="row"><span class="ic">📏</span><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
   <div class="row"><span class="ic">⭐</span><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
   <div class="row"><span class="ic">💀</span><span class="lbl">击杀</span><span class="val" id="myKills" style="color:var(--rose)">0</span></div>
-  <div class="row" id="roomRow" style="display:none"><span class="ic">🚪</span><span class="lbl">房间</span><span class="val" id="roomVal" style="color:var(--cyan);font-size:17px">-</span></div>
+  <div class="row" id="roomRowHud" style="display:none"><span class="ic">🚪</span><span class="lbl">房间</span><span class="val" id="roomVal" style="color:var(--cyan);font-size:17px">-</span></div>
   <div class="row"><span class="ic">🏅</span><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
   <div class="row"><span class="ic">👥</span><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
   <div id="emotes">
@@ -314,6 +333,12 @@
   <button class="btn" id="resumeBtn">▶ 继续游戏</button>
   <button class="btn ghost" id="restartBtn">🔄 重新开始</button>
   <button class="btn ghost" id="pauseMenuBtn">🏠 返回主页</button>
+</div>
+
+<div class="panel" id="roundEnd" style="display:none">
+  <h2 style="background:linear-gradient(135deg,#d97706,#e11d48);-webkit-background-clip:text;background-clip:text;color:transparent">⏱ 本轮结束</h2>
+  <div class="sub" id="reRank"></div>
+  <button class="btn" id="reNext">⚔️ 进入下一轮</button>
 </div>
 
 <script>
@@ -510,9 +535,9 @@ function handle(msg){
       const rc=(msg.room||'').toUpperCase();
       if(rc&&rc!=='GLOBAL'){
         $('roomVal').textContent=rc;
-        $('roomRow').style.display='flex';
+        $('roomRowHud').style.display='flex';
       }else{
-        $('roomRow').style.display='none';
+        $('roomRowHud').style.display='none';
       }
       state.snakes.clear();state.foods.clear();state.items.clear();state.corpses.clear();
       for(const s of msg.snakes)state.snakes.set(s.id,s);
@@ -627,6 +652,9 @@ function handle(msg){
         if(s){s.emote=msg.em;s.emoteUntil=Date.now()+2500;SFX.emote()}
       }
       break;
+    case 'roundEnd':
+      showRoundEnd(msg.rank||[]);
+      break;
     case 'gameover':
       $('dLen').textContent=msg.len;
       $('dScore').textContent=msg.score||'0';
@@ -720,9 +748,37 @@ function showDeath(){
   SFX.death();
 }
 function hideDeath(){$('death').style.display='none';$('specBtn').style.display='none'}
+// 轮次结算面板：显示前三名 + 自己的名次
+const MEDALS=['🥇','🥈','🥉'];
+function showRoundEnd(rank){
+  const lines=rank.slice(0,3).map(r=>{
+    const isMe=r.id===state.selfId?' <b>(你)</b>':'';
+    return MEDALS[r.n-1]+' '+esc(r.name)+isMe+' · '+r.score+'分 · '+r.kills+'杀';
+  }).join('<br>');
+  const my=rank.find(r=>r.id===state.selfId);
+  const myLine=my?'<br>你的名次：<b>第'+my.n+'名</b> · '+my.score+'分':'<br>未上榜';
+  $('reRank').innerHTML=lines+myLine;
+  $('roundEnd').style.display='block';
+  SFX.pickup();
+}
+$('reNext').onclick=()=>{$('roundEnd').style.display='none'};
+// 名人堂加载
+function loadHall(){
+  fetch('/rank').then(r=>r.json()).then(list=>{
+    if(!list||!list.length)return;
+    const body=$('hallBody');
+    body.innerHTML=list.map((h,i)=>{
+      const cls=i<3?'top':'';
+      return `<div class="hb-row"><span class="hb-n ${cls}">${i+1}</span><span class="hb-name">${esc(h.name)}</span><span class="hb-score">${h.score}分</span></div>`;
+    }).join('');
+    $('hallWrap').style.display='block';
+  }).catch(()=>{});
+}
+loadHall();
 function showMenu(){
   hideDeath();
   state.paused=false;state.spectate=false;
+  $('roundEnd').style.display='none';
   $('pause').style.display='none';
   $('hud').style.display='none';
   $('leaderboard').style.display='none';

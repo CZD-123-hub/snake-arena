@@ -21,6 +21,12 @@ const server=http.createServer((req,res)=>{
     res.end(body);
     return;
   }
+  // 名人堂榜单
+  if(req.url==='/rank'){
+    res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+    res.end(JSON.stringify(hallOfFame.slice(0,10)));
+    return;
+  }
   let f=req.url==='/'?'index.html':decodeURIComponent(req.url.split('?')[0].slice(1));
   if(f.includes('..')){res.writeHead(403);res.end();return}
   fs.readFile(path.join(__dirname,f),(e,d)=>{
@@ -47,6 +53,9 @@ function ptsSampled(pts){
 }
 
 // ---------- 房间 ----------
+const ROUND_MS=process.env.ROUND_MS?(+process.env.ROUND_MS):30*60*1000; // 每轮时长：默认 30 分钟（环境变量可覆盖，测试用）
+const DECAY_AFTER=50;        // 大蛇萎缩阈值：经验超过此值后开始自然流失
+const DECAY_RATE=0.01;       // 每 tick 流失（=0.2 经验/秒）
 function createRoom(code){
   const room={
     code,
@@ -55,7 +64,9 @@ function createRoom(code){
     deadQueue:[],nextId:1,aiCount:0,
     prevFoods:new Set(),prevItems:new Set(),aiCheck:0,
     lastActiveAt:Date.now(),    // 最后活跃时间（房间销毁用）
-    timers:[]                   // 房间内待清理的定时器
+    timers:[],                  // 房间内待清理的定时器
+    roundEndsAt:Date.now()+ROUND_MS, // 本轮结束时间
+    bonus:{}                    // 上轮奖励：蛇 id -> 起始经验加成
   };
   spawnFood(room,FOOD_TARGET);
   spawnAI(room,AI_TARGET);
@@ -328,15 +339,59 @@ function kill(room,s,why){
     }
   }
   room.deadQueue.push({id:s.id,at:Date.now(),ai:s.ai});
+  // 玩家死亡上报名人堂（AI 不计）
+  if(!s.ai&&!s.offline)addToHall(s.name,Math.round(s.score),s.kills||0);
   broadcast(room,{type:'death',id:s.id,x:Math.round(s.x),y:Math.round(s.y),foods:newFoods,why:why||''});
   if(s.ws){
     try{s.ws.send(JSON.stringify({type:'gameover',len:Math.round(s.targetLen),score:s.score,kills:s.kills,rank:currentRank(room,s.id)}));}catch(e){}
   }
 }
 
+// ---------- 名人堂（内存版 Top50；后续可平滑升级 CloudBase 云数据库） ----------
+const hallOfFame=[]; // {name,score,kills,at}
+function addToHall(name,score,kills){
+  if(!name||name.startsWith('AI·')||score<=0)return;
+  hallOfFame.push({name:String(name).slice(0,12),score,kills:kills||0,at:Date.now()});
+  hallOfFame.sort((a,b)=>b.score-a.score);
+  if(hallOfFame.length>50)hallOfFame.length=50;
+}
+
 function currentRank(room,id){
   const list=[...room.snakes.values()].filter(x=>x.alive).sort((a,b)=>b.score-a.score);
   return list.findIndex(x=>x.id===id)+1;
+}
+
+// ---------- 轮次结算 ----------
+// 每 30 分钟一轮：结算前三名（下一轮起始经验加成），重置世界与蛇身重新开战
+function endRound(room){
+  const now=Date.now();
+  const rank=[...room.snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score).slice(0,10)
+    .map((s,i)=>({n:i+1,id:s.id,name:s.name,score:Math.round(s.score),kills:s.kills||0}));
+  // 前三名上报名人堂 + 下轮起始加成（🥇+5 🥈+3 🥉+2）
+  const prizes={0:5,1:3,2:2};
+  const bonus={};
+  rank.slice(0,3).forEach((r,i)=>{
+    if(!r.name.startsWith('AI·'))addToHall(r.name,r.score,r.kills);
+    bonus[r.id]=prizes[i];
+  });
+  // 重置世界
+  room.foods.clear();room.corpses.clear();room.deadQueue=[];
+  spawnFood(room,FOOD_TARGET);
+  room.items.clear();ensureItems(room);
+  // 蛇全部重生（保持连接，score 归零 + 新手保护）
+  for(const s of room.snakes.values()){
+    s.alive=true;s.score=0;s.kills=0;s.targetLen=12;
+    s.paused=false;s.offline=false;s.offlineUntil=0;
+    s.boost=false;s.effects={};s.lastKillAt=0;s.killStreak=0;
+    s.protectUntil=now+PROTECT_MS;
+    const pos=safeSpawn(room);
+    s.x=pos.x;s.y=pos.y;s.angle=rnd(Math.PI*2);
+    s.points=[];
+    for(let i=0;i<12;i++)s.points.push({x:s.x-i*9*Math.cos(s.angle),y:s.y-i*9*Math.sin(s.angle)});
+    if(bonus[s.id])s.score=bonus[s.id];
+  }
+  room.roundEndsAt=now+ROUND_MS;
+  broadcast(room,{type:'roundEnd',rank});
 }
 
 // ---------- 主循环 ----------
@@ -364,9 +419,13 @@ function tick(){
 }
 function tickRoom(room){
   const now=Date.now();
+  // 轮次到期：结算并重置，进入下一轮
+  if(now>room.roundEndsAt){endRound(room);return}
   for(const s of room.snakes.values()){
     if(!s.alive||s.paused||s.offline)continue;
     s.targetLen=Math.max(6,12+s.score);
+    // 大蛇萎缩：经验超过阈值后自然流失，必须持续吃球维持
+    if(s.score>DECAY_AFTER)s.score=Math.max(DECAY_AFTER,s.score-DECAY_RATE);
     if(s.ai){
       s.thinkTimer=(s.thinkTimer||0)-1;
       if(s.thinkTimer<=0){thinkAI(room,s);s.thinkTimer=3}
@@ -601,6 +660,8 @@ wss.on('connection',ws=>{
       s.room=room;
       ws.snake=s;
       room.snakes.set(s.id,s);
+      // 上轮奖励：起始经验加成
+      if(room.bonus&&room.bonus[s.id]){s.score=room.bonus[s.id];delete room.bonus[s.id]}
       sendInit(ws,room,s);
     }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused&&!ws.snake.offline){
       if(!rateLimit(ws,'input'))return;
