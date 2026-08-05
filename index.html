@@ -556,7 +556,19 @@ function handle(msg){
       if(msg.id===state.selfId)SFX.kill();
       break;
     case 'dash':
-      if(msg.id===state.selfId){SFX.pickup();dashTrail(msg.x,msg.y,state.selfAngle)}
+      if(msg.id===state.selfId){
+        SFX.pickup();
+        // 本地同步瞬移：自己的预测点整体平移，避免偏差触发拉回抖动
+        if(msg.dx||msg.dy){
+          const me=state.snakes.get(state.selfId);
+          if(me&&me.points){
+            for(const p of me.points){p[0]+=msg.dx;p[1]+=msg.dy}
+            me.x+=msg.dx;me.y+=msg.dy;
+            me._corr=null; // 清除拉回目标
+          }
+        }
+        dashTrail(msg.x,msg.y,state.selfAngle);
+      }
       break;
     case 'emote':
       if(msg.id!==state.selfId){
