@@ -30,12 +30,12 @@ const ITEM_KINDS=['shield','magnet','boost','stealth'];
 
 function rnd(n){return Math.random()*n}
 
-// 点位采样：广播时减少点数量，降带宽（每3点取1；蛇越长采样越密保证平滑）
+// 点位采样：广播时减少点数量，降带宽（保底 60 点，蛇身圆润不卡）
 function ptsSampled(pts){
-  const step=Math.max(2,Math.floor(pts.length/40));
+  const step=Math.max(1,Math.floor(pts.length/60));
+  if(step===1)return pts.map(p=>[p.x|0,p.y|0]);
   const out=[];
   for(let i=0;i<pts.length;i+=step)out.push([pts[i].x|0,pts[i].y|0]);
-  if(out.length<2)return pts.map(p=>[p.x|0,p.y|0]);
   return out;
 }
 

@@ -486,7 +486,11 @@ function handle(msg){
           old.kills=s.kills;old.prot=s.prot;old.fx=s.fx;
           state.snakes.set(s.id,old);
         }else{
-          state.snakes.set(s.id,Object.assign({prev:old||null},s));
+          const nowT=performance.now();
+          const cp=Object.assign({prev:old||null},s);
+          cp._prevT=(old&&old._pt)||(nowT-50); // 上一包到达时间
+          cp._pt=nowT;                          // 本包到达时间
+          state.snakes.set(s.id,cp);
         }
       }
       const aliveIds=new Set(msg.snakes.map(s=>s.id));
@@ -1029,24 +1033,41 @@ function draw(){
     ctx.globalAlpha=1;
   }
 
-  // 蛇：自己用本地预测渲染点（平滑缓冲防跳变）；其他蛇平滑追赶
+  // 蛇：自己用本地预测渲染点（平滑缓冲防跳变）；其他蛇时间缓冲插值
   // 统一用"补齐/截断 + lerp"：点数量变化时也平滑，头部永不跳变
   const nowT=performance.now();
+  const RENDER_DELAY=90; // 渲染延迟缓冲（ms）：看"过去 90ms"的位置，两包之间匀速插值
   for(const s of state.snakes.values()){
     if(state.spectate&&s.id===state.selfId)continue;
     const isMe=s.id===state.selfId;
     if(s.points&&s.points.length>1){
-      if(!s._rp||s._rp.length===0)s._rp=s.points.map(p=>[p[0],p[1]]);
-      else{
-        while(s._rp.length<s.points.length)s._rp.push([s.points[s._rp.length][0],s.points[s._rp.length][1]]);
-        while(s._rp.length>s.points.length)s._rp.pop();
-        const k=isMe?0.4:0.22;
-        for(let i=0;i<s.points.length;i++){
-          s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*k;
-          s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*k;
+      if(isMe){
+        // 自己：渲染点向本地预测点平滑追赶（0.4 快速跟随，操作跟手）
+        if(!s._rp||s._rp.length===0)s._rp=s.points.map(p=>[p[0],p[1]]);
+        else{
+          while(s._rp.length<s.points.length)s._rp.push([s.points[s._rp.length][0],s.points[s._rp.length][1]]);
+          while(s._rp.length>s.points.length)s._rp.pop();
+          for(let i=0;i<s.points.length;i++){
+            s._rp[i][0]+=(s.points[i][0]-s._rp[i][0])*0.4;
+            s._rp[i][1]+=(s.points[i][1]-s._rp[i][1])*0.4;
+          }
         }
+        drawSnake(s,true,s._rp);
+      }else if(s.prev&&s.prev.points&&s.prev.points.length>1&&s._pt&&s._prevT){
+        // 其他蛇：按时间在两包之间插值（固定延迟缓冲，网络抖动也匀速）
+        const span=Math.max(20,s._pt-s._prevT);
+        const f=Math.min(1,Math.max(0,(nowT-RENDER_DELAY-s._prevT)/span));
+        const pc=s.prev.points,cc=s.points;
+        const n=Math.min(pc.length,cc.length);
+        const pts=new Array(cc.length);
+        for(let i=0;i<cc.length;i++){
+          const q=pc[Math.min(i,n-1)]||cc[i];
+          pts[i]=[q[0]+(cc[i][0]-q[0])*f,q[1]+(cc[i][1]-q[1])*f];
+        }
+        drawSnake(s,false,pts);
+      }else{
+        drawSnake(s,false);
       }
-      drawSnake(s,isMe,s._rp);
     }else{
       drawSnake(s,isMe);
     }
