@@ -374,7 +374,8 @@ const state={
   rank:[],pendingJoin:false,paused:false,
   shake:0,shakeUntil:0,redUntil:0,
   emote:null,roomCode:'',sessionToken:'',
-  quality:2 // 画质档位：2=高 1=中 0=低（帧时间自适应）
+  quality:2, // 画质档位：2=高 1=中 0=低（帧时间自适应）
+  leaveGame:false // 主动离开标志：防止"返回主页"被断线自动重连拉回
 };
 // 性能 HUD：URL 带 ?perf=1 时显示帧时间/FPS（真机验证流畅度用）
 if(location.search.indexOf('perf=1')>=0){
@@ -493,14 +494,15 @@ function connect(){
   };
   ws.onclose=()=>{
     state.connected=false;
-    // 对局中断线：自动重连（30s 内凭 token 恢复原位）
-    if(state.inGame&&state.sessionToken){
+    // 对局中断线：自动重连（30s 内凭 token 恢复原位）；主动点"返回主页"则直接回菜单
+    if(state.inGame&&state.sessionToken&&!state.leaveGame){
       $('conn').style.display='block';
       $('conn').textContent='连接断开，正在自动重连...';
       $('conn').classList.remove('ok');$('conn').classList.add('err');
       reconnect();
     }else{
       state.inGame=false;
+      state.leaveGame=false;
       $('conn').textContent='连接断开，请刷新重连';
       $('conn').classList.remove('ok');$('conn').classList.add('err');
       showMenu();
@@ -540,6 +542,7 @@ function handle(msg){
       state.selfId=msg.selfId;state.selfColor=msg.selfColor;
       state.roomCode=msg.room||'';
       state.sessionToken=msg.token||'';
+      state.leaveGame=false; // 新一局开始：清除主动离开标志
       // 重连/新局恢复：清除暂停与轮次面板残留（服务端已同步 paused=false）
       state.paused=false;
       $('pause').style.display='none';
@@ -748,7 +751,12 @@ $('restartBtn').onclick=()=>{
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'respawn',name:myNameVal,skin:mySkin||'',room:state.roomCode}));
   else{state.pendingJoin=true;connect()}
 };
-$('pauseMenuBtn').onclick=()=>{state.paused=false;$('pause').style.display='none';if(ws)ws.close()};
+$('pauseMenuBtn').onclick=()=>{
+  state.paused=false;
+  $('pause').style.display='none';
+  state.leaveGame=true; // 标记主动离开：关闭连接时不触发自动重连（否则刚断开又自动连回游戏）
+  if(ws)ws.close();
+};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&state.inGame&&ws){
     if($('pause').style.display==='block'){
@@ -1358,7 +1366,7 @@ function drawSnake(s,isMe,usePts){
   let body=s.color;
   let pat='stripe';
   if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
-  const r=Math.min(16,2.5+Math.sqrt(s.score||0)*0.8);
+  const r=Math.min(17,3+Math.sqrt(s.score||0)*0.9);
   ctx.lineCap='round';ctx.lineJoin='round';
   const now=Date.now();
   // 新手保护：半透明闪烁

@@ -520,7 +520,7 @@ function tickRoom(room){
           if((s.effects.shield&&now<s.effects.shield)||(t.effects.shield&&now<t.effects.shield))continue;
           if(t.effects.stealth&&now<t.effects.stealth)continue;
           done.add(t.id);
-          const hitR=Math.min(42,19+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.5);
+          const hitR=Math.min(46,21+(Math.sqrt(s.score)+Math.sqrt(t.score))*0.55);
           const dx=h.x-p.x,dy=h.y-p.y;
           if(dx*dx+dy*dy<hitR*hitR){
             if(s.score>t.score){
