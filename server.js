@@ -59,9 +59,9 @@ function createSnake(ws,name,skin){
     color:COLORS[Math.floor(rnd(COLORS.length))],
     skin:skin||'',
     x:200+rnd(WORLD-400),y:200+rnd(WORLD-400),
-    angle, boost:false,targetLen:12,score:0,
+    angle, boost:false,targetLen:12,score:0,kills:0,
     points:[],alive:true,
-    boostHeld:false,ai:false,thinkTimer:0
+    boostHeld:false,ai:false,thinkTimer:0,paused:false
   };
   for(let i=0;i<12;i++){
     s.points.push({x:s.x-i*9*Math.cos(angle),y:s.y-i*9*Math.sin(angle)});
@@ -172,7 +172,7 @@ function currentRank(id){
 
 function tick(){
   for(const s of snakes.values()){
-    if(!s.alive)continue;
+    if(!s.alive||s.paused)continue;
     // 长度完全由经验决定：经验越少长度越短
     s.targetLen=Math.max(6,12+s.score);
     if(s.ai){
@@ -185,19 +185,20 @@ function tick(){
   }
   // 碰撞：只有被更高经验的蛇吃掉才出局（同经验互撞无伤害）
   for(const s of snakes.values()){
-    if(!s.alive)continue;
+    if(!s.alive||s.paused)continue;
     const h=headOf(s);
     for(const t of snakes.values()){
-      if(!t.alive||t.id===s.id)continue;
+      if(!t.alive||t.id===s.id||t.paused)continue;
       for(let i=0;i<t.points.length;i+=2){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;
         if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){
           if(s.score>t.score){
-            // 大鱼吃小鱼：吃掉对方，获得一半经验（长度自动跟随经验）
+            // 大鱼吃小鱼：吃掉对方，获得全部经验和长度，击杀+1
             t.eatenBy=s.name;
-            const gained=Math.max(1,Math.floor(t.score*0.5));
+            const gained=Math.max(1,Math.floor(t.score));
             s.score+=gained;
+            s.kills=(s.kills||0)+1;
             kill(t,'eaten:'+s.name);
             broadcast({type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
           }else if(t.score>s.score){
@@ -246,7 +247,7 @@ function broadcastState(){
     if(!s.alive)continue;
     if(s.ws)online++;
     sn.push({id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
-      len:Math.round(s.targetLen),score:s.score,boost:s.boost,
+      len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
       points:s.points.map(p=>[p.x|0,p.y|0])});
   }
   // 食物增量：与上次快照对比
@@ -267,7 +268,7 @@ function broadcastState(){
 
 function sendInit(ws,s){
   const allSnakes=[...snakes.values()].filter(x=>x.alive).map(x=>({id:x.id,name:x.name,color:x.color,skin:x.skin,
-    x:Math.round(x.x),y:Math.round(x.y),len:Math.round(x.targetLen),score:x.score,boost:x.boost,
+    x:Math.round(x.x),y:Math.round(x.y),len:Math.round(x.targetLen),score:x.score,boost:x.boost,kills:x.kills||0,
     points:x.points.map(p=>[p.x|0,p.y|0])}));
   const allFoods=[...foods.values()];
   ws.send(JSON.stringify({type:'init',selfId:s.id,selfColor:s.color,selfSkin:s.skin,world:WORLD,
@@ -289,6 +290,8 @@ wss.on('connection',ws=>{
     }else if(msg.type==='input'&&ws.snake&&ws.snake.alive){
       ws.snake.angle=+msg.angle||0;
       ws.snake.boost=!!msg.boost;
+    }else if(msg.type==='pause'&&ws.snake){
+      ws.snake.paused=!!msg.paused;
     }else if(msg.type==='respawn'){
       const s=createSnake(ws,String(msg.name||'').slice(0,12),String(msg.skin||''));
       ws.snake=s;

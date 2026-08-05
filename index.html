@@ -163,6 +163,7 @@
 <div class="panel" id="hud" style="display:none">
   <div class="row"><span class="ic">📏</span><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
   <div class="row"><span class="ic">⭐</span><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
+  <div class="row"><span class="ic">💀</span><span class="lbl">击杀</span><span class="val" id="myKills" style="color:var(--rose)">0</span></div>
   <div class="row"><span class="ic">🏅</span><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
   <div class="row"><span class="ic">👥</span><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
   <button class="quit" id="quitBtn">⏸ 退出</button>
@@ -319,6 +320,7 @@ function handle(msg){
       // 自己的经验（整数显示）
       const selfSnake=state.snakes.get(state.selfId);
       if(selfSnake&&selfSnake.score!=null)$('myScore').textContent=Math.floor(selfSnake.score);
+      if(selfSnake&&selfSnake.kills!=null)$('myKills').textContent=selfSnake.kills;
       // 吃食物光效
       if(msg.eats)for(const e of msg.eats){
         for(const f of e.f)if(f.x!=null)explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
@@ -365,6 +367,7 @@ function enterGame(){
 $('quitBtn').onclick=()=>{
   if(!state.inGame)return;
   state.paused=true;
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'pause',paused:true}));
   const me=state.snakes.get(state.selfId);
   $('pLen').textContent=me?Math.round(me.len||0):0;
   $('pScore').textContent=me?Math.floor(me.score||0):0;
@@ -372,7 +375,11 @@ $('quitBtn').onclick=()=>{
   $('pause').style.display='block';
 };
 // 暂停菜单：继续游戏
-$('resumeBtn').onclick=()=>{state.paused=false;$('pause').style.display='none'};
+$('resumeBtn').onclick=()=>{
+  state.paused=false;
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'pause',paused:false}));
+  $('pause').style.display='none';
+};
 // 暂停菜单：重新开始（重生）
 $('restartBtn').onclick=()=>{
   state.paused=false;
@@ -385,9 +392,13 @@ $('pauseMenuBtn').onclick=()=>{state.paused=false;$('pause').style.display='none
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&state.inGame&&ws){
     // 已打开暂停则关闭，否则打开
-    if($('pause').style.display==='block'){state.paused=false;$('pause').style.display='none'}
-    else{
+    if($('pause').style.display==='block'){
+      state.paused=false;
+      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'pause',paused:false}));
+      $('pause').style.display='none';
+    }else{
       state.paused=true;
+      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'pause',paused:true}));
       const me=state.snakes.get(state.selfId);
       $('pLen').textContent=me?Math.round(me.len||0):0;
       $('pScore').textContent=me?Math.floor(me.score||0):0;
