@@ -360,26 +360,36 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{
   if(e.code==='Space')state.boosting=false;
 });
-canvas.addEventListener('touchstart',e=>{
-  e.preventDefault();
-  const t=e.touches[0];state.touch={x:t.clientX,y:t.clientY};
-  state.boosting=true;
-},{passive:false});
-canvas.addEventListener('touchmove',e=>{
-  e.preventDefault();
-  const t=e.touches[0];state.touch={x:t.clientX,y:t.clientY};
-},{passive:false});
-canvas.addEventListener('touchend',e=>{state.touch=null;state.boosting=false},{passive:false});
 
-// 触摸虚拟摇杆
-const joy={active:false,cx:0,cy:0,dx:0,dy:0};
-canvas.addEventListener('touchstart',e=>{
-  const t=e.touches[0];joy.active=true;joy.cx=t.clientX;joy.cy=t.clientY;joy.dx=0;joy.dy=0;
-},{passive:false});
-canvas.addEventListener('touchmove',e=>{
-  const t=e.touches[0];joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;
-},{passive:false});
-canvas.addEventListener('touchend',e=>{joy.active=false;joy.dx=0;joy.dy=0},{passive:false});
+// 触摸：第一根手指=方向摇杆，第二根手指=加速
+const joy={active:false,cx:0,cy:0,dx:0,dy:0,joyId:-1,boostId:-1};
+function joyStart(e){
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(joy.joyId<0){
+      joy.joyId=t.identifier;joy.active=true;joy.cx=t.clientX;joy.cy=t.clientY;joy.dx=0;joy.dy=0;
+    }else if(joy.boostId<0){
+      joy.boostId=t.identifier;state.boosting=true;
+    }
+  }
+}
+function joyMove(e){
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===joy.joyId){joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;}
+  }
+}
+function joyEnd(e){
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===joy.joyId){joy.joyId=-1;joy.active=false;joy.dx=0;joy.dy=0;}
+    if(t.identifier===joy.boostId){joy.boostId=-1;state.boosting=false;}
+  }
+}
+canvas.addEventListener('touchstart',joyStart,{passive:false});
+canvas.addEventListener('touchmove',joyMove,{passive:false});
+canvas.addEventListener('touchend',joyEnd,{passive:false});
+canvas.addEventListener('touchcancel',joyEnd,{passive:false});
 
 function computeInput(){
   const me=state.snakes.get(state.selfId);
