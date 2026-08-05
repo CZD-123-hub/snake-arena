@@ -480,7 +480,9 @@ function handle(msg){
       state.lastStateAt=performance.now();
       for(const s of msg.snakes){
         const old=state.snakes.get(s.id);
-        if(s.id===state.selfId&&old&&old.points&&old.points.length>1){
+        const nowT=performance.now();
+        const inDashBuf=s.id===state.selfId&&old&&old._dashUntil&&nowT<old._dashUntil;
+        if(s.id===state.selfId&&old&&old.points&&old.points.length>1&&!inDashBuf){
           const h=old.points[0],sh=s.points[0];
           if(sh&&Math.hypot(h[0]-sh[0],h[1]-sh[1])>90){
             // 校正：不瞬间替换，设平滑拉回目标（本地预测逐帧向服务端位置过渡）
@@ -490,10 +492,10 @@ function handle(msg){
           old.kills=s.kills;old.prot=s.prot;old.fx=s.fx;
           state.snakes.set(s.id,old);
         }else{
-          const nowT=performance.now();
+          // 冲刺缓冲期/其他蛇：走服务端插值（更新 points + 时间戳）
           const cp=Object.assign({prev:old||null},s);
-          cp._prevT=(old&&old._pt)||(nowT-50); // 上一包到达时间
-          cp._pt=nowT;                          // 本包到达时间
+          cp._prevT=(old&&old._pt)||(nowT-50);
+          cp._pt=nowT;
           state.snakes.set(s.id,cp);
         }
       }
@@ -558,14 +560,18 @@ function handle(msg){
     case 'dash':
       if(msg.id===state.selfId){
         SFX.pickup();
-        // 本地同步瞬移：自己的预测点整体平移，避免偏差触发拉回抖动
-        if(msg.dx||msg.dy){
-          const me=state.snakes.get(state.selfId);
-          if(me&&me.points){
+        const me=state.snakes.get(state.selfId);
+        if(me){
+          // 本地同步瞬移：预测点整体平移，保持与服务端一致
+          if(msg.dx||msg.dy){
             for(const p of me.points){p[0]+=msg.dx;p[1]+=msg.dy}
             me.x+=msg.dx;me.y+=msg.dy;
-            me._corr=null; // 清除拉回目标
           }
+          me._corr=null;
+          // 同步服务端方向：缓冲期结束后本地预测无缝衔接
+          if(Number.isFinite(msg.a))state.selfAngle=msg.a;
+          // 冲刺后 400ms 切服务端插值渲染（平滑接管），防止本地预测方向偏离累积抖动
+          me._dashUntil=performance.now()+400;
         }
         dashTrail(msg.x,msg.y,state.selfAngle);
       }
@@ -906,6 +912,8 @@ let lastFrameT=performance.now();
 function localPredict(){
   const me=state.snakes.get(state.selfId);
   if(!me||!me.points||me.points.length<2||!state.inGame||state.paused||state.spectate)return;
+  // 冲刺缓冲期内暂停本地预测（由服务端插值接管，避免方向偏离累积抖动）
+  if(me._dashUntil&&performance.now()<me._dashUntil)return;
   const now=performance.now();
   const dt=Math.min(0.1,(now-lastFrameT)/1000);
   lastFrameT=now;
@@ -1067,12 +1075,13 @@ function draw(){
   for(const s of state.snakes.values()){
     if(state.spectate&&s.id===state.selfId)continue;
     const isMe=s.id===state.selfId;
+    const inDashBuf=isMe&&s._dashUntil&&nowT<s._dashUntil;
     if(s.points&&s.points.length>1){
-      if(isMe){
-        // 自己：直接用本地预测点（逐帧平滑推进，无缓冲冲突）
+      if(isMe&&!inDashBuf){
+        // 自己（非冲刺缓冲期）：直接用本地预测点（逐帧平滑推进）
         drawSnake(s,true,s.points);
       }else if(s.prev&&s.prev.points&&s.prev.points.length>1&&s._pt&&s._prevT){
-        // 其他蛇：按时间在两包之间插值（固定延迟缓冲，网络抖动也匀速）
+        // 其他蛇 / 冲刺缓冲期的自己：按时间在两包之间插值（固定延迟缓冲，匀速平滑）
         const span=Math.max(20,s._pt-s._prevT);
         const f=Math.min(1,Math.max(0,(nowT-RENDER_DELAY-s._prevT)/span));
         const pc=s.prev.points,cc=s.points;
@@ -1082,9 +1091,9 @@ function draw(){
           const q=pc[Math.min(i,n-1)]||cc[i];
           pts[i]=[q[0]+(cc[i][0]-q[0])*f,q[1]+(cc[i][1]-q[1])*f];
         }
-        drawSnake(s,false,pts);
+        drawSnake(s,isMe,pts);
       }else{
-        drawSnake(s,false);
+        drawSnake(s,isMe);
       }
     }else{
       drawSnake(s,isMe);

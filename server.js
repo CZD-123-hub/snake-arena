@@ -175,10 +175,10 @@ function doDash(room,s){
   if(ok){
     for(const p of s.points){p.x+=dx;p.y+=dy}
     s.x+=dx;s.y+=dy;
-    // 广播位移量，前端本地同步瞬移（避免偏差触发拉回抖动）
-    broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),dx:Math.round(dx),dy:Math.round(dy)});
+    // 广播位移量+方向，前端本地同步瞬移（避免偏差触发拉回抖动）
+    broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),dx:Math.round(dx),dy:Math.round(dy),a:s.angle});
   }else{
-    broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),dx:0,dy:0});
+    broadcast(room,{type:'dash',id:s.id,x:Math.round(s.x),y:Math.round(s.y),dx:0,dy:0,a:s.angle});
   }
 }
 
