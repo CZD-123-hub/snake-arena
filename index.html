@@ -177,6 +177,20 @@
   #buffsFx .bff{background:rgba(5,150,105,.92);color:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700;
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
+  #killfeed{
+    position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:12;display:flex;flex-direction:column;
+    gap:4px;align-items:center;pointer-events:none;width:min(420px,92vw);
+  }
+  #killfeed .kf{
+    background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:99px;
+    padding:5px 16px;font-size:12.5px;font-weight:600;box-shadow:var(--shadow);
+    animation:kfIn .25s ease-out, kfOut .4s ease-in 3.2s forwards;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+  }
+  @keyframes kfIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes kfOut{to{opacity:0;transform:translateY(-6px)}}
+  #killfeed .kf .kn{color:var(--rose);font-weight:700}
+  #killfeed .kf .tn{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -230,6 +244,7 @@
 <div id="buffsFx"></div>
 <div id="buffBar"></div>
 <div id="streak"></div>
+<div id="killfeed"></div>
 
 <div class="panel" id="death">
   <h2>💥 你出局了</h2>
@@ -450,6 +465,8 @@ function handle(msg){
     case 'eat':
       if(msg.x!=null)explode(msg.x,msg.y,'#22d3ee',18);
       if(msg.killer===state.selfId)SFX.kill();
+      // 击杀播报
+      if(msg.killerName&&msg.targetName)addKillFeed(msg.killerName,msg.targetName);
       break;
     case 'killstreak':
       if(msg.killer===state.selfId){
@@ -616,6 +633,19 @@ function specTarget(){
   return null;
 }
 
+// ---------- 击杀播报 ----------
+function addKillFeed(killerName,targetName){
+  const feed=$('killfeed');
+  const el=document.createElement('div');
+  el.className='kf';
+  const kn=esc(killerName),tn=esc(targetName);
+  el.innerHTML=`🔥 <span class="kn">${kn}</span> 吃掉了 <span class="tn">${tn}</span>`;
+  feed.appendChild(el);
+  // 最多保留 3 条
+  while(feed.children.length>3)feed.removeChild(feed.firstChild);
+  setTimeout(()=>el.remove(),3800);
+}
+
 // ---------- 连杀提示 ----------
 let streakTimer=null;
 function showStreak(count){
@@ -708,8 +738,9 @@ document.querySelectorAll('#emotes button').forEach(btn=>{
 function computeInput(){
   const me=state.snakes.get(state.selfId);
   if(!me)return;
-  const screenX=me.x-state.camX+W/2;
-  const screenY=me.y-state.camY+H/2;
+  const vs=state.scale||1;
+  const screenX=(me.x-state.camX)*vs+W/2;
+  const screenY=(me.y-state.camY)*vs+H/2;
   if(joy.active&&(Math.abs(joy.dx)>8||Math.abs(joy.dy)>8)){
     state.targetAngle=Math.atan2(joy.dy,joy.dx);
   }else{
@@ -767,28 +798,33 @@ function draw(){
     state.camX+=(focus.x-state.camX)*0.1;
     state.camY+=(focus.y-state.camY)*0.1;
   }
+  // 镜头缩放：蛇越长视野越大（slither 式成长感）
+  const fLen=focus?(focus.len||12):12;
+  const scale=Math.max(0.6,Math.min(1,1-(fLen-12)*0.004));
+  state.scale=scale;
   // 死亡震动
   let shx=0,shy=0;
   if(Date.now()<state.shakeUntil){
     shx=(Math.random()-0.5)*state.shake;
     shy=(Math.random()-0.5)*state.shake;
   }
-  const ox=-state.camX+W/2+shx,oy=-state.camY+H/2+shy;
+  const ox=-state.camX*scale+W/2+shx,oy=-state.camY*scale+H/2+shy;
 
   ctx.fillStyle='#f4f6fa';
   ctx.fillRect(0,0,W,H);
   ctx.save();
   ctx.translate(ox,oy);
+  ctx.scale(scale,scale);
 
   ctx.strokeStyle='rgba(92,107,128,.12)';ctx.lineWidth=1;
-  const x0=Math.floor((state.camX-W/2)/gridSize)*gridSize;
-  const y0=Math.floor((state.camY-H/2)/gridSize)*gridSize;
+  const x0=Math.floor((state.camX-W/2/scale)/gridSize)*gridSize;
+  const y0=Math.floor((state.camY-H/2/scale)/gridSize)*gridSize;
   ctx.beginPath();
-  for(let x=x0;x<state.camX+W/2+gridSize;x+=gridSize){
-    ctx.moveTo(x,state.camY-H/2);ctx.lineTo(x,state.camY+H/2);
+  for(let x=x0;x<state.camX+W/2/scale+gridSize;x+=gridSize){
+    ctx.moveTo(x,state.camY-H/2/scale);ctx.lineTo(x,state.camY+H/2/scale);
   }
-  for(let y=y0;y<state.camY+H/2+gridSize;y+=gridSize){
-    ctx.moveTo(state.camX-W/2,y);ctx.lineTo(state.camX+W/2,y);
+  for(let y=y0;y<state.camY+H/2/scale+gridSize;y+=gridSize){
+    ctx.moveTo(state.camX-W/2/scale,y);ctx.lineTo(state.camX+W/2/scale,y);
   }
   ctx.stroke();
 
@@ -802,8 +838,9 @@ function draw(){
   ctx.shadowBlur=0;
 
   // 道具
+  const vs=state.scale||1;
   for(const it of state.items.values()){
-    if(it.x<state.camX-W/2-40||it.x>state.camX+W/2+40||it.y<state.camY-H/2-40||it.y>state.camY+H/2+40)continue;
+    if(it.x<state.camX-W/2/vs-40||it.x>state.camX+W/2/vs+40||it.y<state.camY-H/2/vs-40||it.y>state.camY+H/2/vs+40)continue;
     const meta=ITEM_META[it.kind]||{e:'?',color:'#94a3b8'};
     const pulse=1+Math.sin(Date.now()/260+it.x)*0.12;
     ctx.fillStyle=meta.color;
@@ -818,7 +855,7 @@ function draw(){
 
   // 食物
   for(const f of state.foods.values()){
-    if(f.x<state.camX-W/2-30||f.x>state.camX+W/2+30||f.y<state.camY-H/2-30||f.y>state.camY+H/2+30)continue;
+    if(f.x<state.camX-W/2/vs-30||f.x>state.camX+W/2/vs+30||f.y<state.camY-H/2/vs-30||f.y>state.camY+H/2/vs+30)continue;
     if(f.big){
       const pulse=1+Math.sin(Date.now()/300+f.x)*0.15;
       ctx.fillStyle='#f59e0b';
@@ -888,7 +925,7 @@ function drawSnake(s,isMe,usePts){
   if(!s.points||s.points.length<2)return;
   const pts=usePts||s.points;
   const h=pts[0];
-  if(h[0]<state.camX-W/2-200||h[0]>state.camX+W/2+200||h[1]<state.camY-H/2-200||h[1]>state.camY+H/2+200)return;
+  if(h[0]<state.camX-W/2/(state.scale||1)-200||h[0]>state.camX+W/2/(state.scale||1)+200||h[1]<state.camY-H/2/(state.scale||1)-200||h[1]>state.camY+H/2/(state.scale||1)+200)return;
   let body=s.color;
   let pat='stripe';
   if(s.skin){const sk=skinOf(s.skin);body=sk.color;pat=sk.pattern}
@@ -962,6 +999,10 @@ function drawSnake(s,isMe,usePts){
     ctx.fillStyle=isMe?'#059669':'rgba(26,35,50,.75)';
     ctx.fillText(s.name,h[0],h[1]-r-8);
   }
+  // 长度数字（名字下方）
+  ctx.font='10px system-ui';
+  ctx.fillStyle='rgba(92,107,128,.7)';
+  ctx.fillText('Lv.'+Math.round(s.len||12),h[0],h[1]-r-20);
   // 表情气泡
   if(s.emote&&Date.now()<s.emoteUntil){
     ctx.font='22px system-ui';

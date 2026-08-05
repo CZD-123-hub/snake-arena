@@ -258,7 +258,7 @@ function tickRoom(room){
             s.score+=gained;
             s.kills=(s.kills||0)+1;
             kill(room,t,'eaten:'+s.name);
-            broadcast(room,{type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
+            broadcast(room,{type:'eat',killer:s.id,target:t.id,killerName:s.name,targetName:t.name,x:Math.round(p.x),y:Math.round(p.y),gained});
             if(s.killStreak>=2)broadcast(room,{type:'killstreak',killer:s.id,count:s.killStreak});
           }else if(t.score>s.score){
             kill(room,s,'hit:'+t.name+'@'+i);
