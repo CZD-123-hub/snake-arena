@@ -14,6 +14,13 @@ const ITEM_DUR={shield:3000,magnet:4000,boost:3000,stealth:4000};
 
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png'};
 const server=http.createServer((req,res)=>{
+  // 健康检查端点：/health 返回运行状态 JSON（Railway Healthcheck Path 指向它）
+  if(req.url==='/health'){
+    const body=JSON.stringify(healthInfo());
+    res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+    res.end(body);
+    return;
+  }
   let f=req.url==='/'?'index.html':decodeURIComponent(req.url.split('?')[0].slice(1));
   if(f.includes('..')){res.writeHead(403);res.end();return}
   fs.readFile(path.join(__dirname,f),(e,d)=>{
@@ -484,6 +491,16 @@ function sendInit(ws,room,s){
 }
 
 // ---------- 连接 ----------
+// 每连接频率限制：input ≤60/s（客户端 25ms 一发=40/s，留余量）、emote ≤2/s
+const RATE={input:60,emote:2};
+function rateLimit(ws,key){
+  const now=Date.now();
+  if(!ws.rate)ws.rate={};
+  const arr=ws.rate[key]=(ws.rate[key]||[]).filter(t=>now-t<1000);
+  if(arr.length>=RATE[key])return false;
+  arr.push(now);
+  return true;
+}
 wss.on('connection',ws=>{
   ws.isAlive=true;
   ws.on('pong',()=>ws.isAlive=true);
@@ -499,6 +516,7 @@ wss.on('connection',ws=>{
       room.snakes.set(s.id,s);
       sendInit(ws,room,s);
     }else if(msg.type==='input'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
+      if(!rateLimit(ws,'input'))return;
       // 输入校验：angle 必须为有限数字并归一化到 [-2π,2π]，boost 转布尔
       const a=+msg.angle;
       if(Number.isFinite(a))ws.snake.angle=((a%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
@@ -508,6 +526,7 @@ wss.on('connection',ws=>{
     }else if(msg.type==='dash'&&ws.snake&&ws.snake.alive&&!ws.snake.paused){
       doDash(ws.snake.room,ws.snake);
     }else if(msg.type==='emote'&&ws.snake&&ws.snake.alive){
+      if(!rateLimit(ws,'emote'))return;
       ws.snake.emote=String(msg.em||'').slice(0,4);
       ws.snake.emoteUntil=Date.now()+2500;
       const room=ws.snake.room;
@@ -524,5 +543,34 @@ setInterval(()=>{
     ws.isAlive=false;ws.ping();
   }
 },10000);
+
+// ---------- 健康检查与日志 ----------
+const STARTED_AT=Date.now();
+function healthInfo(){
+  let roomsActive=0,online=0,aiTotal=0,players=0;
+  for(const [code,room] of rooms){
+    if(room.snakes.size===0)continue;
+    roomsActive++;
+    for(const s of room.snakes.values()){
+      if(!s.alive)continue;
+      if(s.ai)aiTotal++;else players++;
+      if(s.ws)online++;
+    }
+  }
+  return {
+    status:'ok',
+    uptimeSec:Math.round((Date.now()-STARTED_AT)/1000),
+    rooms:roomsActive,
+    online,
+    ai:aiTotal,
+    players,
+    memMB:Math.round(process.memoryUsage().rss/1048576)
+  };
+}
+// 每 30s 输出一行结构化日志（Railway 日志面板可查）
+setInterval(()=>{
+  const h=healthInfo();
+  console.log(JSON.stringify({t:new Date().toISOString(),...h}));
+},30000);
 
 server.listen(PORT,()=>console.log('SNAKE ARENA SERVER READY at http://localhost:'+PORT));
