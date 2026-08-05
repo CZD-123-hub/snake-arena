@@ -196,7 +196,7 @@
   #actionZone .act-btn.boost{background:rgba(5,150,105,.8)}
   #actionZone .act-btn span{font-size:10px;letter-spacing:.05em}
   #actionZone .act-btn:active{transform:scale(.92)}
-  @media (hover:hover) and (pointer:fine){#joyZone,#actionZone{display:none!important}}
+  /* 显示/隐藏由 JS 按设备类型控制（不依赖 pointer 查询，防横屏失配） */
   /* ===== 手机触屏：竖屏布局 ===== */
   @media (orientation:portrait) and (pointer:coarse){
     #joyZone{width:120px;height:120px;bottom:22px;left:22px}
@@ -798,10 +798,14 @@ canvas.addEventListener('touchstart',e=>{
 // 手机端：固定摇杆 + 加速/冲刺按钮（替代任意点摇杆）
 const joy={active:false,cx:0,cy:0,dx:0,dy:0,joyId:-1,boostId:-1};
 const joyZoneEl=$('joyZone'),joyKnobEl=$('joyKnob');
-function isTouchDevice(){return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)}
+function isTouchDevice(){return /Mobi|Android|iPhone|iPad|Windows Phone/i.test(navigator.userAgent)||('ontouchstart'in window)}
+function applyMobileUI(){
+  const t=isTouchDevice();
+  joyZoneEl.style.display=t?'block':'none';
+  $('actionZone').style.display=t?'flex':'none';
+}
 if(isTouchDevice()){
-  joyZoneEl.style.display='block';
-  $('actionZone').style.display='flex';
+  applyMobileUI();
   // 固定摇杆：按住拖动转向
   joyZoneEl.addEventListener('touchstart',e=>{
     e.preventDefault();
