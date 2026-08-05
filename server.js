@@ -126,7 +126,7 @@ function move(s){
   // 加速燃烧长度和经验
   if(s.boost){
     s.targetLen=Math.max(6,s.targetLen-0.25);
-    s.score=Math.max(0,s.score-0.06);
+    s.score=Math.max(0,s.score-0.03);
   }
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
@@ -257,7 +257,7 @@ function broadcastState(){
   for(const id of cur)if(!prev.has(id))fadd.push(foods.get(id));
   for(const id of prev)if(!foods.has(id))fdel.push(id);
   global.__prevFoods=new Set(cur);
-  const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score).slice(0,10);
+  const sorted=[...snakes.values()].filter(s=>s.alive).sort((a,b)=>b.score-a.score);
   const rank=sorted.map((s,i)=>({n:i+1,id:s.id,name:s.name,len:Math.round(s.targetLen),score:s.score}));
   // 吃食物事件（动画用）
   const eats=[];

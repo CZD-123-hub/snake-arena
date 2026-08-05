@@ -133,6 +133,7 @@
 
 <div class="panel" id="hud" style="display:none">
   <div class="row"><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
+  <div class="row"><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
   <div class="row"><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
   <div class="row"><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
   <button id="quitBtn" style="margin-top:6px;background:rgba(255,255,255,.35);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:5px 0;font-size:12px;cursor:pointer;font-family:inherit">退出</button>
@@ -249,6 +250,7 @@ function handle(msg){
       enterGame();
       break;
     case 'state':
+      state.lastStateAt=performance.now();
       for(const s of msg.snakes){
         const old=state.snakes.get(s.id);
         if(s.id===state.selfId&&old&&old.points&&old.points.length>1){
@@ -277,6 +279,9 @@ function handle(msg){
         renderLeaderboard();
       }
       if(msg.online!=null)$('online').textContent=msg.online;
+      // 自己的经验（整数显示）
+      const selfSnake=state.snakes.get(state.selfId);
+      if(selfSnake&&selfSnake.score!=null)$('myScore').textContent=Math.floor(selfSnake.score);
       // 吃食物光效
       if(msg.eats)for(const e of msg.eats){
         for(const f of e.f)if(f.x!=null)explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
@@ -442,6 +447,15 @@ function localPredict(){
   while(me.points.length>keep)me.points.pop();
   me.x=c;me.y=cy;
   me._predicted=true;
+  // 乐观吃球：本地立即吃掉经过的球（服务器稍后确认删除）
+  for(const [id,f] of state.foods){
+    const dx=c-f.x,dy=cy-f.y;
+    const eatR=f.big?18:13;
+    if(dx*dx+dy*dy<eatR*eatR){
+      state.foods.delete(id);
+      explode(f.x,f.y,f.big?'#f59e0b':'#fbbf24',f.big?8:4);
+    }
+  }
 }
 
 function draw(){
@@ -497,9 +511,23 @@ function draw(){
     }
   }
 
-  // 蛇
+  // 蛇（其他蛇做插值渲染，消除瞬移）
+  const nowT=performance.now();
   for(const s of state.snakes.values()){
-    drawSnake(s,s.id===state.selfId);
+    const isMe=s.id===state.selfId;
+    if(!isMe&&s.prev&&s.prev.points&&s.prev.points.length>1){
+      // 在 prev（旧状态）和 cur（新状态）之间按时间插值
+      const f=Math.min(1,(nowT-(state.lastStateAt||0))/50);
+      const pc=s.prev.points,cc=s.points;
+      const n=Math.min(pc.length,cc.length);
+      const pts=cc.map((p,i)=>{
+        const q=pc[Math.min(i,n-1)]||p;
+        return [q[0]+(p[0]-q[0])*f,q[1]+(p[1]-q[1])*f];
+      });
+      drawSnake(s,false,pts);
+    }else{
+      drawSnake(s,isMe);
+    }
   }
   // 粒子动画（世界坐标系）
   drawParticles();
@@ -538,10 +566,11 @@ function drawParticles(){
   ctx.globalAlpha=1;
 }
 
-function drawSnake(s,isMe){
+function drawSnake(s,isMe,usePts){
   if(!s.points||s.points.length<2)return;
+  const pts=usePts||s.points;
   // 视口裁剪
-  const h=s.points[0];
+  const h=pts[0];
   if(h[0]<state.camX-W/2-200||h[0]>state.camX+W/2+200||h[1]<state.camY-H/2-200||h[1]>state.camY+H/2+200)return;
   // 皮肤颜色（AI 蛇随机色，玩家用所选皮肤）
   let body=s.color;
@@ -555,12 +584,11 @@ function drawSnake(s,isMe){
     ctx.shadowColor=body;ctx.shadowBlur=14;
   }
   // 身体
-  const grad=ctx.createLinearGradient(h[0],h[1],s.points[s.points.length-1][0],s.points[s.points.length-1][1]);
+  const grad=ctx.createLinearGradient(h[0],h[1],pts[pts.length-1][0],pts[pts.length-1][1]);
   grad.addColorStop(0,lighten(body,isMe?0.25:0));
   grad.addColorStop(1,darken(body,0.5));
   ctx.strokeStyle=isMe?body:grad;
   ctx.lineWidth=r*2;
-  const pts=s.points;
   ctx.beginPath();
   ctx.moveTo(pts[0][0],pts[0][1]);
   for(let i=1;i<pts.length;i++){
@@ -588,7 +616,7 @@ function drawSnake(s,isMe){
   ctx.fillStyle=lighten(body,0.3);
   ctx.beginPath();ctx.arc(h[0],h[1],r,0,Math.PI*2);ctx.fill();
   // 眼睛
-  const a=Math.atan2(h[1]-(s.points[1]?s.points[1][1]:h[1]),h[0]-(s.points[1]?s.points[1][0]:h[0]));
+  const a=Math.atan2(h[1]-(pts[1]?pts[1][1]:h[1]),h[0]-(pts[1]?pts[1][0]:h[0]));
   const ex=Math.cos(a),ey=Math.sin(a);
   ctx.fillStyle='#fff';
   ctx.beginPath();ctx.arc(h[0]+ex*r*0.6-ey*r*0.5,h[1]+ey*r*0.6+ex*r*0.5,r*0.32,0,Math.PI*2);ctx.fill();
@@ -628,7 +656,7 @@ function drawMinimap(){
 
 function renderLeaderboard(){
   const body=$('lbBody');
-  body.innerHTML=state.rank.map(r=>{
+  body.innerHTML=state.rank.slice(0,10).map(r=>{
     const me=r.id===state.selfId?' lb-me':'';
     const cls=r.n<=3?'top':'';
     const isAI=r.name.startsWith('AI·');
