@@ -177,10 +177,10 @@
   #buffsFx .bff{background:rgba(5,150,105,.92);color:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700;
     box-shadow:0 6px 20px -6px rgba(5,150,105,.6);animation:pop .3s ease-out}
   #specBtn{display:none}
-  /* 手机端操作按钮（由 body.touch-device 控制显示，横竖屏都可靠） */
-  #actionZone{display:none;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
+  /* 手机端操作按钮：默认显示，仅鼠标设备（hover:hover）隐藏 */
+  #actionZone{display:flex;position:fixed;z-index:8;user-select:none;-webkit-user-select:none;touch-action:none;
     bottom:34px;right:22px;flex-direction:column;gap:14px;align-items:flex-end}
-  body.touch-device #actionZone{display:flex}
+  @media (hover:hover) and (pointer:fine){#actionZone{display:none!important}}
   #actionZone .act-btn{
     width:78px;height:78px;border-radius:50%;border:none;cursor:pointer;font-family:inherit;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
@@ -292,7 +292,7 @@
 <div id="streak"></div>
 <div id="killfeed"></div>
 
-<!-- 手机端固定操作区 -->
+<!-- 手机端操作按钮：加速在下方（拇指最顺手），冲刺在上 -->
 <div id="actionZone">
   <button id="dashBtn" class="act-btn">⚡<span>冲刺</span></button>
   <button id="boostBtn" class="act-btn boost">🚀<span>加速</span></button>
