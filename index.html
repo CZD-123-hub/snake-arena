@@ -9,26 +9,36 @@
     --bg:#f4f6fa; --panel:#ffffff; --panel2:#eef2f8;
     --border:#d8e0ec; --text:#1a2332; --muted:#5c6b80;
     --green:#059669; --cyan:#0891b2; --amber:#d97706; --rose:#e11d48;
+    --gold:#d97706; --silver:#94a3b8; --bronze:#b45309;
+    --shadow:0 12px 40px -12px rgba(26,35,50,.22);
+    --radius:16px;
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;overflow:hidden}
   body{
-    background:var(--bg); color:var(--text);
+    background:
+      radial-gradient(1200px 600px at 85% -10%,rgba(8,145,178,.08),transparent 60%),
+      radial-gradient(1000px 500px at -10% 110%,rgba(5,150,105,.08),transparent 60%),
+      var(--bg);
+    color:var(--text);
     font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
   }
   #game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
 
   .panel{
     position:fixed;background:var(--panel);border:1px solid var(--border);
-    border-radius:14px;padding:18px;z-index:10;
+    border-radius:var(--radius);padding:18px;z-index:10;
+    box-shadow:var(--shadow);
   }
 
   #menu{
     top:50%;left:50%;transform:translate(-50%,-50%);
     width:min(440px,94vw);text-align:center;
+    backdrop-filter:blur(12px);
   }
-  #menu h1{font-size:32px;letter-spacing:.1em;font-weight:800;margin-bottom:2px;
-    background:linear-gradient(135deg,#059669,#0891b2);-webkit-background-clip:text;background-clip:text;color:transparent}
+  #menu h1{font-size:36px;letter-spacing:.08em;font-weight:800;margin-bottom:4px;
+    background:linear-gradient(135deg,#059669,#0891b2,#6366f1);-webkit-background-clip:text;background-clip:text;color:transparent}
+  #menu h1 .ic{font-size:30px;margin-right:8px;background:none;-webkit-background-clip:initial;background-clip:initial;color:var(--green)}
   #menu .tagline{color:var(--muted);font-size:13px;margin-bottom:20px;letter-spacing:.08em}
   #menu .field-label{font-size:11px;color:var(--muted);letter-spacing:.14em;text-align:left;margin:14px 2px 8px}
   #menu input{
@@ -53,60 +63,78 @@
   .skin.plain::after{background:none}
   #menu .btn{
     width:100%;background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border:none;border-radius:12px;
-    padding:14px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;
-    transition:transform .15s,filter .15s,box-shadow .15s;box-shadow:0 6px 20px -6px rgba(5,150,105,.5);
+    padding:15px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:.06em;
+    transition:transform .15s,filter .15s,box-shadow .15s;box-shadow:0 10px 26px -8px rgba(5,150,105,.55);
   }
-  #menu .btn:hover{filter:brightness(1.08)}
+  #menu .btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
   #menu .btn:active{transform:scale(.98)}
-  #menu .tip{margin-top:16px;color:var(--muted);font-size:11.5px;line-height:1.9}
+  #menu .tip{margin-top:18px;color:var(--muted);font-size:12px;line-height:2}
   #menu .tip kbd{
     background:var(--panel2);border:1px solid var(--border);border-radius:5px;
     padding:1px 6px;font-size:10.5px;color:var(--text);
   }
+  #menu .tip .em{font-size:13px}
 
-  #hud{top:14px;left:14px;padding:14px 18px;display:flex;flex-direction:column;gap:9px;min-width:158px;
-    backdrop-filter:blur(8px);box-shadow:0 8px 30px -12px rgba(26,35,50,.18)}
-  #hud .row{display:flex;align-items:baseline;gap:8px}
-  #hud .lbl{color:var(--muted);font-size:11px;letter-spacing:.12em}
-  #hud .val{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green)}
+  #hud{top:14px;left:14px;padding:12px 16px;display:flex;flex-direction:column;gap:7px;min-width:170px;
+    backdrop-filter:blur(10px);border-radius:14px}
+  #hud .row{display:flex;align-items:center;gap:8px}
+  #hud .ic{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;background:var(--panel2)}
+  #hud .lbl{color:var(--muted);font-size:10.5px;letter-spacing:.1em;flex:1}
+  #hud .val{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green);line-height:1}
   #hud .rank{color:var(--amber)}
+  #hud .quit{
+    margin-top:4px;background:var(--panel2);color:var(--muted);border:1px solid var(--border);
+    border-radius:9px;padding:6px 0;font-size:12px;cursor:pointer;font-family:inherit;
+    transition:background .15s,color .15s;
+  }
+  #hud .quit:hover{background:rgba(225,29,72,.08);color:var(--rose);border-color:rgba(225,29,72,.25)}
 
   #leaderboard{
-    top:14px;right:14px;padding:14px 18px;min-width:190px;max-width:250px;
-    backdrop-filter:blur(8px);box-shadow:0 8px 30px -12px rgba(26,35,50,.18);
+    top:14px;right:14px;padding:12px 16px;min-width:196px;max-width:250px;
+    backdrop-filter:blur(10px);border-radius:14px;
   }
-  #leaderboard .title{font-size:11px;color:var(--muted);letter-spacing:.2em;margin-bottom:8px}
-  #leaderboard .lb-row{display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px}
+  #leaderboard .title{font-size:11px;color:var(--muted);letter-spacing:.2em;margin-bottom:6px;
+    display:flex;align-items:center;gap:6px}
+  #leaderboard .title::before{content:'🏆';font-size:12px}
+  #leaderboard .lb-row{display:flex;gap:8px;align-items:center;padding:3.5px 0;font-size:12.5px;
+    border-radius:8px;padding-left:2px}
+  #leaderboard .lb-row.lb-me{background:rgba(5,150,105,.07)}
   #leaderboard .lb-n{color:var(--muted);width:18px;text-align:right;font-variant-numeric:tabular-nums}
-  #leaderboard .lb-n.top{color:var(--amber);font-weight:700}
+  #leaderboard .lb-n.top{font-weight:800}
+  #leaderboard .lb-row .lb-n.top:nth-child(1){color:var(--gold)}
+  #leaderboard .lb-n[data-n="1"]{color:var(--gold)}
   #leaderboard .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #leaderboard .lb-name.ai{color:var(--muted);font-style:italic}
   #leaderboard .lb-len{color:var(--muted);font-variant-numeric:tabular-nums}
+  #leaderboard .lb-len b{color:var(--green);font-weight:700}
   #leaderboard .lb-me .lb-name{color:var(--green);font-weight:600}
 
   #death{
     top:50%;left:50%;transform:translate(-50%,-50%);width:min(360px,90vw);
     text-align:center;display:none;
-    backdrop-filter:blur(8px);box-shadow:0 20px 60px -20px rgba(225,29,72,.25);
+    backdrop-filter:blur(12px);box-shadow:0 24px 70px -20px rgba(225,29,72,.3);
   }
   #death h2{font-size:28px;margin-bottom:4px;
     background:linear-gradient(135deg,#e11d48,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
   #death .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
   #death .sub b{color:var(--text);font-size:15px}
-  #death .btn{
-    width:100%;background:var(--green);color:#fff;border:none;border-radius:10px;
+  #death .btn,#pause .btn{
+    width:100%;background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border:none;border-radius:11px;
     padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px;
+    transition:transform .12s,filter .12s;
   }
-  #death .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border)}
+  #death .btn:hover,#pause .btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
+  #death .btn.ghost,#pause .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border)}
 
   #minimap{
     bottom:14px;right:14px;width:140px;height:140px;padding:0;overflow:hidden;
-    background:rgba(255,255,255,.9);
+    background:rgba(255,255,255,.9);border-radius:14px;
   }
   #minimap canvas{width:100%;height:100%;display:block}
 
   #conn{
-    top:14px;left:50%;transform:translateX(-50%);padding:6px 14px;font-size:11px;
+    top:14px;left:50%;transform:translateX(-50%);padding:7px 16px;font-size:11px;
     color:var(--muted);letter-spacing:.1em;border-radius:99px;
   }
   #conn.ok{color:var(--green);border-color:rgba(52,211,153,.4)}
@@ -119,24 +147,25 @@
 <div class="panel" id="conn">正在连接服务器…</div>
 
 <div class="panel" id="menu">
-  <h1>贪吃蛇大作战</h1>
+  <h1><span class="ic">🐍</span>贪吃蛇大作战</h1>
   <div class="tagline">多人实时竞技 · 活到最后就是王</div>
   <input id="name" maxlength="12" placeholder="输入你的名字" autocomplete="off">
   <div class="field-label">选择皮肤</div>
   <div id="skins"></div>
-  <button class="btn" id="startBtn">进入战场</button>
+  <button class="btn" id="startBtn">⚔️ 进入战场</button>
   <div class="tip">
-    鼠标控制方向，<kbd>按住鼠标左键</kbd> 或 <kbd>空格</kbd> 加速<br>
-    吃掉光点长大，撞到其他蛇就出局，AI 蛇陪玩不冷场！
+    <span class="em">🖱️</span> 鼠标转向 · <kbd>按住左键</kbd> / <kbd>空格</kbd> 加速<br>
+    <span class="em">📱</span> 手机：一根手指转向，第二根手指加速<br>
+    <span class="em">💡</span> 吃经验球长大，大蛇吃小蛇，撞墙出局！
   </div>
 </div>
 
 <div class="panel" id="hud" style="display:none">
-  <div class="row"><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
-  <div class="row"><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
-  <div class="row"><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
-  <div class="row"><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
-  <button id="quitBtn" style="margin-top:6px;background:rgba(255,255,255,.35);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:5px 0;font-size:12px;cursor:pointer;font-family:inherit">退出</button>
+  <div class="row"><span class="ic">📏</span><span class="lbl">长度</span><span class="val" id="myLen">12</span></div>
+  <div class="row"><span class="ic">⭐</span><span class="lbl">经验</span><span class="val" id="myScore" style="color:var(--amber)">0</span></div>
+  <div class="row"><span class="ic">🏅</span><span class="lbl">排名</span><span class="val rank" id="myRank">?</span></div>
+  <div class="row"><span class="ic">👥</span><span class="lbl">在线</span><span class="val" id="online" style="color:var(--cyan)">0</span></div>
+  <button class="quit" id="quitBtn">⏸ 退出</button>
 </div>
 
 <div class="panel" id="leaderboard" style="display:none">
@@ -147,18 +176,18 @@
 <div class="panel" id="minimap" style="display:none"><canvas id="mm"></canvas></div>
 
 <div class="panel" id="death">
-  <h2>你出局了</h2>
+  <h2>💥 你出局了</h2>
   <div class="sub">本局长度 <b id="dLen">0</b> · 经验 <b id="dScore">0</b> · 排名 <b id="dRank">?</b></div>
-  <button class="btn" id="respawnBtn">再来一局</button>
-  <button class="btn ghost" id="menuBtn">返回菜单</button>
+  <button class="btn" id="respawnBtn">🔄 再来一局</button>
+  <button class="btn ghost" id="menuBtn">🏠 返回菜单</button>
 </div>
 
 <div class="panel" id="pause" style="display:none">
-  <h2 style="background:linear-gradient(135deg,#0891b2,#059669);-webkit-background-clip:text;background-clip:text;color:transparent">暂停</h2>
+  <h2 style="background:linear-gradient(135deg,#0891b2,#059669);-webkit-background-clip:text;background-clip:text;color:transparent">⏸ 暂停</h2>
   <div class="sub">当前长度 <b id="pLen">0</b> · 经验 <b id="pScore">0</b> · 排名 <b id="pRank">?</b></div>
-  <button class="btn" id="resumeBtn">继续游戏</button>
-  <button class="btn ghost" id="restartBtn">重新开始</button>
-  <button class="btn ghost" id="pauseMenuBtn">返回主页</button>
+  <button class="btn" id="resumeBtn">▶ 继续游戏</button>
+  <button class="btn ghost" id="restartBtn">🔄 重新开始</button>
+  <button class="btn ghost" id="pauseMenuBtn">🏠 返回主页</button>
 </div>
 
 <script>
@@ -522,8 +551,8 @@ function draw(){
   ctx.save();
   ctx.translate(ox,oy);
 
-  // 网格
-  ctx.strokeStyle='rgba(92,107,128,.22)';ctx.lineWidth=1;
+  // 网格（更柔和）
+  ctx.strokeStyle='rgba(92,107,128,.12)';ctx.lineWidth=1;
   const x0=Math.floor((state.camX-W/2)/gridSize)*gridSize;
   const y0=Math.floor((state.camY-H/2)/gridSize)*gridSize;
   ctx.beginPath();
@@ -535,9 +564,15 @@ function draw(){
   }
   ctx.stroke();
 
-  // 世界边框
-  ctx.strokeStyle='rgba(225,29,72,.55)';ctx.lineWidth=6;
-  ctx.strokeRect(20,20,WORLD-40,WORLD-40);
+  // 世界边框（渐变发光）
+  const wallGrad=ctx.createLinearGradient(20,20,WORLD-20,WORLD-20);
+  wallGrad.addColorStop(0,'rgba(225,29,72,.7)');
+  wallGrad.addColorStop(.5,'rgba(217,119,6,.7)');
+  wallGrad.addColorStop(1,'rgba(8,145,178,.7)');
+  ctx.strokeStyle=wallGrad;ctx.lineWidth=5;
+  ctx.shadowColor='rgba(225,29,72,.35)';ctx.shadowBlur=18;
+  ctx.strokeRect(18,18,WORLD-36,WORLD-36);
+  ctx.shadowBlur=0;
 
   // 食物（大经验球更亮更大）
   for(const f of state.foods.values()){
@@ -703,7 +738,7 @@ function renderLeaderboard(){
     const me=r.id===state.selfId?' lb-me':'';
     const cls=r.n<=3?'top':'';
     const isAI=r.name.startsWith('AI·');
-    return `<div class="lb-row${me}"><span class="lb-n ${cls}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len">${Math.floor(r.score||0)}分</span></div>`;
+    return `<div class="lb-row${me}"><span class="lb-n ${cls}" data-n="${r.n}">${r.n}</span><span class="lb-name${isAI?' ai':''}">${esc(r.name)}</span><span class="lb-len"><b>${Math.floor(r.score||0)}</b>分</span></div>`;
   }).join('');
 }
 
