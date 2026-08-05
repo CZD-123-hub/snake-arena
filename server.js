@@ -75,9 +75,19 @@ function createRoom(code){
 }
 const rooms=new Map();
 const DEFAULT_CODE='global';
+const MAX_ROOMS=40; // 房间数硬上限：防恶意创建大量房间拖垮免费实例（每房 12 AI + 650 食物）
 function getRoom(code){
   const c=String(code||DEFAULT_CODE).slice(0,12)||DEFAULT_CODE;
-  if(!rooms.has(c))rooms.set(c,createRoom(c));
+  if(!rooms.has(c)){
+    // 达到上限：非默认房间拒绝创建，回落到默认房间（默认房间缺失则重建）
+    if(rooms.size>=MAX_ROOMS){
+      if(!rooms.has(DEFAULT_CODE))rooms.set(DEFAULT_CODE,createRoom(DEFAULT_CODE));
+      const fb=rooms.get(DEFAULT_CODE);
+      fb.lastActiveAt=Date.now();
+      return fb;
+    }
+    rooms.set(c,createRoom(c));
+  }
   const room=rooms.get(c);
   room.lastActiveAt=Date.now();
   return room;
@@ -272,6 +282,22 @@ function thinkAI(room,s){
 }
 
 // ---------- 移动/进食 ----------
+// 静态对象网格（食物+道具）：蛇头只查周围 3×3 格，替代每 tick 全量遍历 650 食物
+// 磁铁半径 70 < CELL=100，3×3 查询等价不漏判
+function buildObjectGrid(room){
+  const grid=new Map();
+  for(const f of room.foods.values()){
+    const k=((f.x/CELL)|0)+','+((f.y/CELL)|0);
+    let arr=grid.get(k);if(!arr){arr=[];grid.set(k,arr)}
+    arr.push(['f',f]);
+  }
+  for(const it of room.items.values()){
+    const k=((it.x/CELL)|0)+','+((it.y/CELL)|0);
+    let arr=grid.get(k);if(!arr){arr=[];grid.set(k,arr)}
+    arr.push(['i',it]);
+  }
+  return grid;
+}
 function move(room,s){
   const h=headOf(s);
   const now=Date.now();
@@ -288,32 +314,50 @@ function move(room,s){
   return true;
 }
 
-function eatFood(room,s){
+function eatFood(room,s,grid){
   const h=headOf(s);
   const now=Date.now();
   const magnet=!!(s.effects.magnet&&now<s.effects.magnet);
   const r=magnet?70:13;
-  for(const [id,f] of room.foods){
-    const dx=h.x-f.x,dy=h.y-f.y;
-    const eatR=f.big?18:r;
-    if(dx*dx+dy*dy<eatR*eatR){
-      room.foods.delete(id);
-      if(f.big)s.score+=5;
-      else s.score+=1;
-      s.ateFoods=s.ateFoods||[];
-      s.ateFoods.push({x:f.x,y:f.y,big:f.big});
+  const cx=(h.x/CELL)|0,cy=(h.y/CELL)|0;
+  for(let gx=cx-1;gx<=cx+1;gx++){
+    for(let gy=cy-1;gy<=cy+1;gy++){
+      const arr=grid.get(gx+','+gy);
+      if(!arr)continue;
+      for(const item of arr){
+        if(item[0]!=='f')continue;
+        const f=item[1];
+        const dx=h.x-f.x,dy=h.y-f.y;
+        const eatR=f.big?18:r;
+        if(dx*dx+dy*dy<eatR*eatR){
+          room.foods.delete(f.id);
+          if(f.big)s.score+=5;
+          else s.score+=1;
+          s.ateFoods=s.ateFoods||[];
+          s.ateFoods.push({x:f.x,y:f.y,big:f.big});
+        }
+      }
     }
   }
 }
-function pickupItems(room,s){
+function pickupItems(room,s,grid){
   const h=headOf(s);
   const now=Date.now();
-  for(const [id,it] of room.items){
-    const dx=h.x-it.x,dy=h.y-it.y;
-    if(dx*dx+dy*dy<18*18){
-      room.items.delete(id);
-      s.effects[it.kind]=now+ITEM_DUR[it.kind];
-      broadcast(room,{type:'item',id:s.id,kind:it.kind,x:Math.round(it.x),y:Math.round(it.y)});
+  const cx=(h.x/CELL)|0,cy=(h.y/CELL)|0;
+  for(let gx=cx-1;gx<=cx+1;gx++){
+    for(let gy=cy-1;gy<=cy+1;gy++){
+      const arr=grid.get(gx+','+gy);
+      if(!arr)continue;
+      for(const item of arr){
+        if(item[0]!=='i')continue;
+        const it=item[1];
+        const dx=h.x-it.x,dy=h.y-it.y;
+        if(dx*dx+dy*dy<18*18){
+          room.items.delete(it.id);
+          s.effects[it.kind]=now+ITEM_DUR[it.kind];
+          broadcast(room,{type:'item',id:s.id,kind:it.kind,x:Math.round(it.x),y:Math.round(it.y)});
+        }
+      }
     }
   }
 }
@@ -381,7 +425,10 @@ function endRound(room){
   // 蛇全部重生（保持连接，score 归零 + 新手保护）
   for(const s of room.snakes.values()){
     s.alive=true;s.score=0;s.kills=0;s.targetLen=12;
-    s.paused=false;s.offline=false;s.offlineUntil=0;
+    s.paused=false;
+    // 断线中的蛇保持 offline（ws=null 不复活成僵尸蛇，重连窗口保留）
+    if(!s.ws){s.offline=true;s.offlineUntil=Math.max(s.offlineUntil||0,now+30000);}
+    else s.offline=false;
     s.boost=false;s.effects={};s.lastKillAt=0;s.killStreak=0;
     s.protectUntil=now+PROTECT_MS;
     const pos=safeSpawn(room);
@@ -421,6 +468,8 @@ function tickRoom(room){
   const now=Date.now();
   // 轮次到期：结算并重置，进入下一轮
   if(now>room.roundEndsAt){endRound(room);return}
+  // 静态对象网格（食物+道具）供本 tick 拾取查询
+  const objGrid=buildObjectGrid(room);
   for(const s of room.snakes.values()){
     if(!s.alive||s.paused||s.offline)continue;
     s.targetLen=Math.max(6,12+s.score);
@@ -432,8 +481,8 @@ function tickRoom(room){
     }
     const moved=move(room,s);
     if(!moved){kill(room,s,'wall');continue}
-    eatFood(room,s);
-    pickupItems(room,s);
+    eatFood(room,s,objGrid);
+    pickupItems(room,s,objGrid);
   }
   // 碰撞：新手保护/护盾/隐身期间免碰撞；大鱼吃小鱼
   // 注意：暂停的蛇不动但【仍可被吃】（防暂停无敌漏洞）
@@ -561,17 +610,19 @@ function effObj(s,now){
   return {shield:Math.max(0,(s.effects.shield||0)-now),magnet:Math.max(0,(s.effects.magnet||0)-now),
     boost:Math.max(0,(s.effects.boost||0)-now),stealth:Math.max(0,(s.effects.stealth||0)-now)};
 }
+const VIEW=1300; // AOI 视野半径：视野内蛇发完整点，视野外只发头部信息（带宽降 70%+）
 function broadcastState(room){
   const now=Date.now();
-  const sn=[],fadd=[],fdel=[],iadd=[],idel=[];
+  const fadd=[],fdel=[],iadd=[],idel=[];
   let online=0;
+  // 每条蛇的元数据（不含 points），视野裁剪时复用
+  const metas=new Map();
   for(const s of room.snakes.values()){
     if(!s.alive)continue;
     if(s.ws)online++;
-    sn.push({id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
+    metas.set(s.id,{id:s.id,name:s.name,color:s.color,skin:s.skin,x:Math.round(s.x),y:Math.round(s.y),
       len:Math.round(s.targetLen),score:s.score,boost:s.boost,kills:s.kills||0,
-      prot:now<s.protectUntil,fx:effObj(s,now),
-      points:ptsSampled(s.points)});
+      prot:now<s.protectUntil,fx:effObj(s,now)});
   }
   const cur=[...room.foods.keys()];
   for(const id of cur)if(!room.prevFoods.has(id))fadd.push(room.foods.get(id));
@@ -589,7 +640,23 @@ function broadcastState(room){
   for(const s of room.snakes.values()){
     if(s.ateFoods&&s.ateFoods.length){eats.push({id:s.id,x:s.x,y:s.y,f:s.ateFoods});s.ateFoods=[]}
   }
-  broadcast(room,{type:'state',snakes:sn,fadd,fdel,rank,eats,online,iadd,idel,corpses});
+  // 公共载荷序列化一次，蛇数组按玩家视野个性化
+  const base=JSON.stringify({fadd,fdel,rank,eats,online,iadd,idel,corpses});
+  for(const p of room.snakes.values()){
+    if(!p.ws)continue;
+    const sn=[];
+    for(const s of room.snakes.values()){
+      if(!s.alive)continue;
+      const m=metas.get(s.id);
+      const dx=p.x-s.x,dy=p.y-s.y;
+      if(dx*dx+dy*dy<VIEW*VIEW){
+        sn.push({...m,points:ptsSampled(s.points)});
+      }else{
+        sn.push(m);
+      }
+    }
+    try{p.ws.send('{"type":"state","snakes":'+JSON.stringify(sn)+','+base.slice(1))}catch(e){}
+  }
 }
 
 function sendInit(ws,room,s){
@@ -644,12 +711,13 @@ wss.on('connection',ws=>{
         return;
       }
       // 找不到或已死：按新加入处理
-      const code2=code;
       if(ws.snake&&ws.snake.room){ws.snake.room.snakes.delete(ws.snake.id)}
       const ns=createSnake(room,ws,String(msg.name||'').replace(/[^\u4e00-\u9fa5A-Za-z0-9_·\s]/g,'').slice(0,12),String(msg.skin||'').replace(/[^\w]/g,'').slice(0,12));
       ns.room=room;
       ws.snake=ns;
       room.snakes.set(ns.id,ns);
+      // 上轮奖励：起始经验加成（与 join 分支一致）
+      if(room.bonus&&room.bonus[ns.id]){ns.score=room.bonus[ns.id];delete room.bonus[ns.id]}
       sendInit(ws,room,ns);
       return;
     }

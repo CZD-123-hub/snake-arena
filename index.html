@@ -531,6 +531,10 @@ function handle(msg){
       state.selfId=msg.selfId;state.selfColor=msg.selfColor;
       state.roomCode=msg.room||'';
       state.sessionToken=msg.token||'';
+      // 重连/新局恢复：清除暂停与轮次面板残留（服务端已同步 paused=false）
+      state.paused=false;
+      $('pause').style.display='none';
+      $('roundEnd').style.display='none';
       // 对战界面显示房间号（全球场不显示）
       const rc=(msg.room||'').toUpperCase();
       if(rc&&rc!=='GLOBAL'){
@@ -733,6 +737,7 @@ window.addEventListener('keydown',e=>{
 
 function showDeath(){
   state.inGame=false;state.paused=false;state.spectate=false;
+  $('roundEnd').style.display='none';
   $('specBtn').style.display='block';
   $('pause').style.display='none';
   $('hud').style.display='none';
@@ -1250,6 +1255,19 @@ function dashTrail(x,y,angle){
 }
 
 function drawSnake(s,isMe,usePts){
+  // 远距离点模式：AOI 视野外蛇只有头部信息，渲染为小圆点+名字（细节远距离无感）
+  if(!usePts&&(!s.points||s.points.length<2)){
+    if(s.x==null||s.y==null)return;
+    if(s.x<state.camX-W/2/(state.scale||1)-40||s.x>state.camX+W/2/(state.scale||1)+40||s.y<state.camY-H/2/(state.scale||1)-40||s.y>state.camY+H/2/(state.scale||1)+40)return;
+    ctx.fillStyle=s.color||'#94a3b8';
+    ctx.beginPath();ctx.arc(s.x,s.y,5,0,Math.PI*2);ctx.fill();
+    if(s.name){
+      ctx.font='10px system-ui';ctx.textAlign='center';
+      ctx.fillStyle='rgba(26,35,50,.55)';
+      ctx.fillText(s.name,s.x,s.y-11);
+    }
+    return;
+  }
   if(!s.points||s.points.length<2)return;
   const pts=usePts||s.points;
   const h=pts[0];
