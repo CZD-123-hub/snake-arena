@@ -74,6 +74,13 @@ function headOf(s){return s.points[0]}
 function thinkAI(s){
   if(!s.alive||!s.ai)return;
   const h=headOf(s);
+  // 避墙：靠近边界时转向中心
+  const MARGIN=180;
+  let wallTarget=null;
+  if(h.x<MARGIN)wallTarget=0;
+  else if(h.x>WORLD-MARGIN)wallTarget=Math.PI;
+  else if(h.y<MARGIN)wallTarget=Math.PI/2;
+  else if(h.y>WORLD-MARGIN)wallTarget=-Math.PI/2;
   // 危险检测：其他蛇头（含玩家）是否逼近
   let danger=null,dangerDist=240;
   for(const t of snakes.values()){
@@ -84,7 +91,9 @@ function thinkAI(s){
     if(d<dangerDist){danger={x:th.x,y:th.y};dangerDist=d}
   }
   let target=null;
-  if(danger&&dangerDist<170){
+  if(wallTarget!=null){
+    target=wallTarget;
+  }else if(danger&&dangerDist<170){
     // 逃离：垂直于威胁方向
     const a=Math.atan2(h.y-danger.y,h.x-danger.x);
     target=a+(Math.random()<0.5?Math.PI/2:-Math.PI/2);
@@ -111,13 +120,8 @@ function move(s){
   const h=headOf(s);
   const sp=s.boost?SPEED_BOOST:SPEED;
   let nx=h.x+Math.cos(s.angle)*sp, ny=h.y+Math.sin(s.angle)*sp;
-  // 软墙：碰到边界推回并反弹
-  const hitX=nx<BODY_R||nx>WORLD-BODY_R;
-  const hitY=ny<BODY_R||ny>WORLD-BODY_R;
-  if(nx<BODY_R)nx=BODY_R; if(nx>WORLD-BODY_R)nx=WORLD-BODY_R;
-  if(ny<BODY_R)ny=BODY_R; if(ny>WORLD-BODY_R)ny=WORLD-BODY_R;
-  if(hitX)s.angle=Math.PI-s.angle;
-  if(hitY)s.angle=-s.angle;
+  // 碰到边界：出局
+  if(nx<BODY_R||nx>WORLD-BODY_R||ny<BODY_R||ny>WORLD-BODY_R)return false;
   s.points.unshift({x:nx,y:ny});
   // 加速燃烧长度和经验
   if(s.boost){
@@ -127,6 +131,7 @@ function move(s){
   const keep=Math.floor(s.targetLen*0.5)+10;
   while(s.points.length>keep)s.points.pop();
   s.x=nx;s.y=ny;
+  return true;
 }
 
 function eatFood(s){
@@ -175,10 +180,11 @@ function tick(){
       s.thinkTimer=(s.thinkTimer||0)-1;
       if(s.thinkTimer<=0){thinkAI(s);s.thinkTimer=3}
     }
-    move(s);
+    const moved=move(s);
+    if(!moved){kill(s,'wall');continue}
     eatFood(s);
   }
-  // 碰撞：蛇头撞任何蛇身（含自己后半段）
+  // 碰撞：只有被更高经验的蛇吃掉才出局（同经验互撞无伤害）
   for(const s of snakes.values()){
     if(!s.alive)continue;
     const h=headOf(s);
@@ -188,29 +194,23 @@ function tick(){
         const p=t.points[i];
         const dx=h.x-p.x,dy=h.y-p.y;
         if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){
-          // 大鱼吃小鱼：经验多的蛇头撞到经验少的蛇身 → 吃掉对方
           if(s.score>t.score){
+            // 大鱼吃小鱼：吃掉对方，获得一半经验
             t.eatenBy=s.name;
             const gained=Math.max(1,Math.floor(t.score*0.5));
             s.score+=gained;
             s.targetLen+=gained*0.4;
             kill(t,'eaten:'+s.name);
             broadcast({type:'eat',killer:s.id,target:t.id,x:Math.round(p.x),y:Math.round(p.y),gained});
-          }else{
+          }else if(t.score>s.score){
+            // 对方经验更高：被吃
             kill(s,'hit:'+t.name+'@'+i);
           }
+          // 经验相同：擦身而过，互不伤害
           break;
         }
       }
       if(!s.alive)break;
-    }
-    if(!s.alive)continue;
-    // 撞自己：只检测头部后方足够远的点（跳过紧邻头部的点）
-    const skip=Math.max(14,Math.floor((HEAD_R+BODY_R*2)/ (s.boost?SPEED_BOOST:SPEED)));
-    for(let i=skip;i<s.points.length;i+=2){
-      const p=s.points[i];
-      const dx=h.x-p.x,dy=h.y-p.y;
-      if(dx*dx+dy*dy<(BODY_R+HEAD_R)*(BODY_R+HEAD_R)){kill(s,'self@'+i);break}
     }
   }
   // 清理死亡蛇；AI 蛇 4 秒后复活
