@@ -811,7 +811,12 @@ function joyStart(e){
 function joyMove(e){
   e.preventDefault();
   for(const t of e.changedTouches){
-    if(t.identifier===joy.joyId){joy.dx=t.clientX-joy.cx;joy.dy=t.clientY-joy.cy;}
+    if(t.identifier===joy.joyId){
+      let dx=t.clientX-joy.cx,dy=t.clientY-joy.cy;
+      const d=Math.hypot(dx,dy);
+      if(d>42){dx=dx/d*42;dy=dy/d*42}
+      joy.dx=dx;joy.dy=dy;
+    }
   }
 }
 function joyEnd(e){
@@ -1020,12 +1025,14 @@ function draw(){
   drawParticles();
   ctx.restore();
 
-  // 旧版任意点摇杆渲染（仅桌面触摸兜底；固定摇杆由 CSS/DOM 显示）
-  if(joy.active&&!isTouchDevice()){
-    ctx.strokeStyle='rgba(26,35,50,.2)';ctx.lineWidth=2;
-    ctx.beginPath();ctx.arc(joy.cx,joy.cy,40,0,Math.PI*2);ctx.stroke();
-    ctx.fillStyle='rgba(5,150,105,.45)';
-    ctx.beginPath();ctx.arc(joy.cx+joy.dx,joy.cy+joy.dy,14,0,Math.PI*2);ctx.fill();
+  // 浮动摇杆：手指按下处出现摇杆盘，拖动转向（手机/触摸屏）
+  if(joy.active){
+    ctx.strokeStyle='rgba(26,35,50,.25)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(joy.cx,joy.cy,42,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.35)';
+    ctx.beginPath();ctx.arc(joy.cx,joy.cy,42,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(5,150,105,.5)';
+    ctx.beginPath();ctx.arc(joy.cx+joy.dx,joy.cy+joy.dy,16,0,Math.PI*2);ctx.fill();
   }
 
   renderBuffs();
